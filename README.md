@@ -27,6 +27,7 @@ Binance data source (daily klines):
 - `PUT /markets/:id`
 - `DELETE /markets/:id`
 - `POST /markets/:id/sync`
+- `GET /markets/sync-status`
 - `GET /markets/download?market=BTCUSDT&start=...&end=...`
 
 ## Database
@@ -48,7 +49,7 @@ Per market candle columns (12 fields):
 ## Run Locally
 
 1. Create PostgreSQL database (example `binance_candles`).
-2. Copy `backend/.env.example` to `backend/.env` and update `DATABASE_URL`.
+2. Copy `.env.example` to `.env` in the project root and set `DB_*` (or `DATABASE_URL`) to match your PostgreSQL user and password.
 3. Install dependencies:
 
 ```bash
@@ -67,8 +68,8 @@ npm run dev:backend
 npm run dev:frontend
 ```
 
-Frontend default URL: `http://localhost:5173`  
-Backend default URL: `http://localhost:4000`
+Ports come from `.env`: `FRONTEND_PORT` (Vite) and `BACKEND_PORT` (Express). Defaults are `5173` and `4000` if unset.
+Parallel market sync workers are controlled by `SYNC_WORKER_COUNT` (default `3`).
 
 ## Notes
 

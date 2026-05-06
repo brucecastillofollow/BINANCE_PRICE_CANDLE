@@ -10,6 +10,7 @@ dayjs.extend(utc);
 const BINANCE_PREFIX = "https://data.binance.vision/data/spot/daily/klines";
 
 async function ensureMarketTable(client, tableName) {
+  console.log(`Creating table ${tableName}`);
   await client.query(`
     CREATE TABLE IF NOT EXISTS ${tableName} (
       open_time BIGINT PRIMARY KEY,
@@ -26,10 +27,25 @@ async function ensureMarketTable(client, tableName) {
       ignore_value NUMERIC
     )
   `);
+  console.log(`Table ${tableName} created`);
 }
 
 function buildDailyUrl(marketName, interval, dateText) {
   return `${BINANCE_PREFIX}/${marketName}/${interval}/${marketName}-${interval}-${dateText}.zip`;
+}
+
+async function updateSyncState(client, marketId, status, progress, errorMessage = null) {
+  await client.query(
+    `
+    UPDATE markets
+    SET sync_status = $1,
+        sync_progress = $2,
+        sync_error = $3,
+        updated_at = NOW()
+    WHERE id = $4
+    `,
+    [status, progress, errorMessage, marketId]
+  );
 }
 
 async function fetchZipBuffer(url) {
@@ -56,10 +72,11 @@ function parseZipCsv(buffer) {
 
 async function insertCandles(client, tableName, rows) {
   if (!rows.length) {
-    return null;
+    return { latestOpenTime: null, insertedCount: 0 };
   }
 
   let latestOpenTime = null;
+  let insertedCount = 0;
   for (const row of rows) {
     if (!Array.isArray(row) || row.length < 12) {
       continue;
@@ -106,28 +123,34 @@ async function insertCandles(client, tableName, rows) {
         row[11],
       ]
     );
+    insertedCount += 1;
 
     if (latestOpenTime === null || openTime > latestOpenTime) {
       latestOpenTime = openTime;
     }
   }
 
-  return latestOpenTime;
+  return { latestOpenTime, insertedCount };
 }
 
 export async function syncMarketData(market) {
+  const tableName = toTableName(market.name);
+  // Create table outside transaction so it is not lost on sync rollback.
+  await ensureMarketTable(pool, tableName);
+
   const client = await pool.connect();
   try {
-    await client.query("BEGIN");
-    const tableName = toTableName(market.name);
-    await ensureMarketTable(client, tableName);
+    await updateSyncState(client, market.id, "syncing", 0, null);
 
     const yesterday = dayjs().utc().startOf("day").subtract(1, "day");
     let currentDate = dayjs(Number(market.last_timestamp)).utc().startOf("day");
-    if (currentDate.isBefore(dayjs(Number(market.start_timestamp)).utc().startOf("day"))) {
-      currentDate = dayjs(Number(market.start_timestamp)).utc().startOf("day");
+    const startDate = dayjs(Number(market.start_timestamp)).utc().startOf("day");
+    if (currentDate.isBefore(startDate)) {
+      currentDate = startDate;
     }
 
+    const totalDays = Math.max(1, yesterday.diff(currentDate, "day") + 1);
+    let processedDays = 0;
     let latestTimestamp = Number(market.last_timestamp);
 
     while (currentDate.isBefore(yesterday) || currentDate.isSame(yesterday)) {
@@ -135,29 +158,41 @@ export async function syncMarketData(market) {
       const url = buildDailyUrl(market.name, market.interval, dateText);
       const zipBuffer = await fetchZipBuffer(url);
       if (!zipBuffer) {
+        processedDays += 1;
+        const progress = Math.min(99, (processedDays / totalDays) * 100);
+        await updateSyncState(client, market.id, "syncing", progress, null);
         currentDate = currentDate.add(1, "day");
         continue;
       }
 
-      const rows = await parseZipCsv(zipBuffer);
-      const lastInserted = await insertCandles(client, tableName, rows);
-      if (lastInserted !== null && lastInserted > latestTimestamp) {
-        latestTimestamp = lastInserted;
+      await client.query("BEGIN");
+      try {
+        const rows = await parseZipCsv(zipBuffer);
+        const { latestOpenTime } = await insertCandles(client, tableName, rows);
+        if (latestOpenTime !== null && latestOpenTime > latestTimestamp) {
+          latestTimestamp = latestOpenTime;
+          await client.query(
+            `
+            UPDATE markets
+            SET last_timestamp = $1, updated_at = NOW()
+            WHERE id = $2
+            `,
+            [latestTimestamp, market.id]
+          );
+        }
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
       }
+      processedDays += 1;
+      const progress = Math.min(99, (processedDays / totalDays) * 100);
+      await updateSyncState(client, market.id, "syncing", progress, null);
       currentDate = currentDate.add(1, "day");
     }
-
-    await client.query(
-      `
-      UPDATE markets
-      SET last_timestamp = $1, updated_at = NOW()
-      WHERE id = $2
-      `,
-      [latestTimestamp, market.id]
-    );
-    await client.query("COMMIT");
+    await updateSyncState(client, market.id, "finished", 100, null);
   } catch (error) {
-    await client.query("ROLLBACK");
+    await updateSyncState(client, market.id, "failed", 0, error.message);
     throw error;
   } finally {
     client.release();

@@ -2,16 +2,42 @@ import express from "express";
 import { pool } from "../db.js";
 import { INTERVAL_OPTIONS } from "../constants.js";
 import { isValidMarketName, sanitizeCsvValue, toTableName } from "../utils.js";
-import { syncMarketData } from "../services/binanceSync.js";
+import { enqueueMarketSync, getSyncQueueStatus } from "../services/syncQueue.js";
 
 export const marketsRouter = express.Router();
 
 marketsRouter.get("/", async (_req, res, next) => {
   try {
-    const result = await pool.query(
-      "SELECT id, name, interval, start_timestamp, last_timestamp, created_at, updated_at FROM markets ORDER BY id DESC"
+    const page = Math.max(1, Number(_req.query.page ?? 1) || 1);
+    const pageSize = Math.min(100, Math.max(1, Number(_req.query.pageSize ?? 10) || 10));
+    const search = typeof _req.query.search === "string" ? _req.query.search.trim().toUpperCase() : "";
+    const offset = (page - 1) * pageSize;
+    const filterSql = search ? "WHERE name ILIKE $1" : "";
+    const params = search ? [`%${search}%`] : [];
+
+    const countResult = await pool.query(
+      `SELECT COUNT(*)::int AS total FROM markets ${filterSql}`,
+      params
     );
-    res.json(result.rows);
+    const total = countResult.rows[0]?.total ?? 0;
+
+    const result = await pool.query(
+      `
+      SELECT id, name, interval, start_timestamp, last_timestamp, sync_status, sync_progress, sync_error, created_at, updated_at
+      FROM markets
+      ${filterSql}
+      ORDER BY id DESC
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+      `,
+      [...params, pageSize, offset]
+    );
+    res.json({
+      items: result.rows,
+      page,
+      pageSize,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    });
   } catch (error) {
     next(error);
   }
@@ -36,11 +62,15 @@ marketsRouter.post("/", async (req, res, next) => {
       `
         INSERT INTO markets (name, interval, start_timestamp, last_timestamp)
         VALUES ($1, $2, $3, $3)
-        RETURNING id, name, interval, start_timestamp, last_timestamp, created_at, updated_at
+        RETURNING id, name, interval, start_timestamp, last_timestamp, sync_status, sync_progress, sync_error, created_at, updated_at
       `,
       [normalizedName, interval, value]
     );
-    res.status(201).json(result.rows[0]);
+    const queueResult = enqueueMarketSync(result.rows[0].id);
+    res.status(201).json({
+      ...result.rows[0],
+      sync_job: queueResult.reason,
+    });
   } catch (error) {
     next(error);
   }
@@ -63,7 +93,7 @@ marketsRouter.put("/:id", async (req, res, next) => {
       UPDATE markets
       SET interval = $1, start_timestamp = $2, updated_at = NOW()
       WHERE id = $3
-      RETURNING id, name, interval, start_timestamp, last_timestamp, created_at, updated_at
+      RETURNING id, name, interval, start_timestamp, last_timestamp, sync_status, sync_progress, sync_error, created_at, updated_at
       `,
       [interval, Number(startTimestamp), Number(id)]
     );
@@ -71,6 +101,7 @@ marketsRouter.put("/:id", async (req, res, next) => {
     if (!result.rowCount) {
       return res.status(404).json({ message: "Market not found" });
     }
+    enqueueMarketSync(result.rows[0].id);
     res.json(result.rows[0]);
   } catch (error) {
     next(error);
@@ -102,15 +133,17 @@ marketsRouter.post("/:id/sync", async (req, res, next) => {
       return res.status(404).json({ message: "Market not found" });
     }
 
-    await syncMarketData(marketResult.rows[0]);
-    const refreshed = await pool.query(
-      "SELECT id, name, interval, start_timestamp, last_timestamp, created_at, updated_at FROM markets WHERE id = $1",
-      [Number(id)]
-    );
-    res.json(refreshed.rows[0]);
+    const queueResult = enqueueMarketSync(Number(id));
+    res.status(202).json({
+      message: queueResult.reason === "already_scheduled" ? "Sync already in progress or queued" : "Sync queued",
+    });
   } catch (error) {
     next(error);
   }
+});
+
+marketsRouter.get("/sync-status", (_req, res) => {
+  res.json(getSyncQueueStatus());
 });
 
 marketsRouter.get("/download", async (req, res, next) => {

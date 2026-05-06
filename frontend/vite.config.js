@@ -7,6 +7,7 @@ export default defineConfig(({ mode }) => {
     envDir: "..",
     plugins: [react()],
     server: {
+      host: "0.0.0.0",
       port: Number(env.FRONTEND_PORT ?? 5173),
     },
   };

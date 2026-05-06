@@ -1,59 +1,148 @@
 * {
   box-sizing: border-box;
-  font-family: Arial, sans-serif;
+  font-family: Inter, Segoe UI, Arial, sans-serif;
 }
 
 body {
   margin: 0;
-  background: #f3f4f6;
+  background: linear-gradient(180deg, #f5f7ff 0%, #eef2ff 100%);
+  color: #0f172a;
 }
 
 .app {
-  max-width: 1100px;
+  max-width: 1150px;
   margin: 0 auto;
-  padding: 24px;
+  padding: 28px 20px 40px;
+}
+
+.page-header h1 {
+  margin: 0;
+  font-size: 30px;
+}
+
+.subtitle {
+  margin: 8px 0 0;
+  color: #475569;
 }
 
 .card {
-  background: #fff;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 16px;
+  background: #ffffffcc;
+  border: 1px solid #dbe5ff;
+  border-radius: 14px;
+  padding: 18px;
+  margin-top: 14px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.06);
+}
+
+.card h2 {
+  margin-top: 0;
+  margin-bottom: 14px;
 }
 
 .row-form,
 .market-row {
   display: flex;
-  gap: 8px;
+  gap: 12px;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: end;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: #334155;
+  min-width: 160px;
 }
 
 input,
 select,
 button {
-  padding: 8px 10px;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+  min-height: 40px;
+}
+
+input:focus,
+select:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
 }
 
 button {
   cursor: pointer;
+  border: 1px solid #cbd5e1;
+  font-weight: 600;
+}
+
+button:hover {
+  background: #f8fafc;
+}
+
+.primary {
+  background: #4f46e5;
+  color: #fff;
+  border-color: #4f46e5;
+}
+
+.primary:hover {
+  background: #4338ca;
 }
 
 .danger {
-  background: #ffdbdb;
-  border: 1px solid #ff8f8f;
+  background: #fee2e2;
+  border: 1px solid #fca5a5;
+  color: #991b1b;
 }
 
 .meta {
-  color: #4b5563;
+  color: #475569;
   font-size: 13px;
 }
 
 .message {
-  color: #1f2937;
+  color: #1e3a8a;
   background: #dbeafe;
   border: 1px solid #bfdbfe;
-  border-radius: 6px;
-  padding: 8px;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-top: 12px;
+}
+
+.market-list {
+  display: grid;
+  gap: 10px;
+}
+
+.market-row {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.market-head {
+  min-width: 180px;
+}
+
+.pagination-bar {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.error-text {
+  color: #b91c1c;
+}
+
+button:disabled,
+select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }

@@ -2,26 +2,26 @@ import { createApp } from "./app.js";
 import { config } from "./config.js";
 import { closeDb, initDb } from "./db.js";
 import { pool } from "./db.js";
-import { syncMarketData } from "./services/binanceSync.js";
+import { enqueueMarketSync } from "./services/syncQueue.js";
 
 async function syncAllMarkets() {
   const result = await pool.query("SELECT * FROM markets");
   for (const market of result.rows) {
-    try {
-      await syncMarketData(market);
-    } catch (error) {
-      console.error(`Sync failed for ${market.name}`, error.message);
-    }
+    enqueueMarketSync(market.id);
   }
 }
 
 async function bootstrap() {
   await initDb();
-  await syncAllMarkets();
 
   const app = createApp();
   const server = app.listen(config.port, () => {
     console.log(`Backend listening on http://localhost:${config.port}`);
+  });
+
+  // Do not block API startup on potentially long historical sync.
+  syncAllMarkets().catch((error) => {
+    console.error("Initial background sync failed", error.message);
   });
 
   process.on("SIGINT", async () => {
