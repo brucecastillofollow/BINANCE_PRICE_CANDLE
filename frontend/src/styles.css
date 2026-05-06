@@ -129,6 +129,24 @@ button:hover {
   min-width: 180px;
 }
 
+.market-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.live-badge {
+  margin-left: 8px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: #16a34a;
+  border-radius: 999px;
+  vertical-align: middle;
+}
+
 .pagination-bar {
   margin-top: 12px;
   display: flex;
@@ -139,6 +157,46 @@ button:hover {
 
 .error-text {
   color: #b91c1c;
+}
+
+.ghost {
+  background: #fff;
+  color: #334155;
+}
+
+.check-banner {
+  flex-basis: 100%;
+  font-size: 13px;
+  color: #475569;
+  margin-top: 4px;
+}
+
+.check-panel {
+  flex-basis: 100%;
+  margin-top: 10px;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.check-summary {
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.check-details {
+  margin-top: 8px;
+}
+
+.check-details pre {
+  margin: 8px 0 0;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
 button:disabled,

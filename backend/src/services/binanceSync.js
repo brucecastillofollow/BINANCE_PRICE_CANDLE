@@ -3,11 +3,47 @@ import utc from "dayjs/plugin/utc.js";
 import JSZip from "jszip";
 import { parse } from "csv-parse/sync";
 import { pool } from "../db.js";
-import { toTableName } from "../utils.js";
+import { normalizeBinanceCsvTimeMs, toHistoricalTableName } from "../utils.js";
 
 dayjs.extend(utc);
 
 const BINANCE_PREFIX = "https://data.binance.vision/data/spot/daily/klines";
+
+/** Binance spot daily klines use Unix ms; reject garbage rows that corrupt `last_timestamp`. */
+const MIN_KLINE_MS = Date.UTC(2010, 0, 1);
+
+function maxKlineMs() {
+  return Date.now() + 2 * 24 * 60 * 60 * 1000;
+}
+
+function toFiniteMs(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const n = typeof value === "bigint" ? Number(value) : Number(value);
+  if (!Number.isFinite(n)) {
+    return null;
+  }
+  return n;
+}
+
+function isPlausibleKlineMs(ms) {
+  return ms >= MIN_KLINE_MS && ms <= maxKlineMs();
+}
+
+/**
+ * `last_timestamp` stores max candle open_time. For a full 1m day the last open is ~23:59 UTC.
+ * In that case the next fetch should start the following calendar day, not the same day.
+ */
+function firstCalendarDayToFetch(lastMs) {
+  const sod = dayjs(lastMs).utc().startOf("day");
+  const msIntoDay = lastMs - sod.valueOf();
+  const fullDayMs = 24 * 60 * 60 * 1000;
+  if (msIntoDay >= fullDayMs - 2 * 60 * 1000) {
+    return sod.add(1, "day");
+  }
+  return sod;
+}
 
 async function ensureMarketTable(client, tableName) {
   console.log(`Creating table ${tableName}`);
@@ -81,9 +117,12 @@ async function insertCandles(client, tableName, rows) {
     if (!Array.isArray(row) || row.length < 12) {
       continue;
     }
-    const openTime = Number(row[0]);
-    const closeTime = Number(row[6]);
-    if (Number.isNaN(openTime) || Number.isNaN(closeTime)) {
+    const openTime = normalizeBinanceCsvTimeMs(row[0]);
+    const closeTime = normalizeBinanceCsvTimeMs(row[6]);
+    if (openTime === null || closeTime === null) {
+      continue;
+    }
+    if (!isPlausibleKlineMs(openTime) || !isPlausibleKlineMs(closeTime)) {
       continue;
     }
 
@@ -134,7 +173,7 @@ async function insertCandles(client, tableName, rows) {
 }
 
 export async function syncMarketData(market) {
-  const tableName = toTableName(market.name);
+  const tableName = toHistoricalTableName(market.name, market.interval);
   // Create table outside transaction so it is not lost on sync rollback.
   await ensureMarketTable(pool, tableName);
 
@@ -142,16 +181,30 @@ export async function syncMarketData(market) {
   try {
     await updateSyncState(client, market.id, "syncing", 0, null);
 
+    let startMs = toFiniteMs(market.start_timestamp);
+    let lastMs = toFiniteMs(market.last_timestamp);
+    if (startMs === null || !isPlausibleKlineMs(startMs)) {
+      startMs = MIN_KLINE_MS;
+    }
+    if (lastMs === null || lastMs < startMs || !isPlausibleKlineMs(lastMs)) {
+      lastMs = startMs;
+      await client.query(
+        `UPDATE markets SET last_timestamp = GREATEST(last_timestamp, $1), updated_at = NOW() WHERE id = $2`,
+        [lastMs, market.id]
+      );
+    }
+
     const yesterday = dayjs().utc().startOf("day").subtract(1, "day");
-    let currentDate = dayjs(Number(market.last_timestamp)).utc().startOf("day");
-    const startDate = dayjs(Number(market.start_timestamp)).utc().startOf("day");
+    const startDate = dayjs(startMs).utc().startOf("day");
+    let currentDate = firstCalendarDayToFetch(lastMs);
     if (currentDate.isBefore(startDate)) {
       currentDate = startDate;
     }
 
-    const totalDays = Math.max(1, yesterday.diff(currentDate, "day") + 1);
+    const totalDaysOverall = Math.max(1, yesterday.diff(startDate, "day") + 1);
+    const syncStartDay = currentDate.clone();
     let processedDays = 0;
-    let latestTimestamp = Number(market.last_timestamp);
+    let latestTimestamp = lastMs;
 
     while (currentDate.isBefore(yesterday) || currentDate.isSame(yesterday)) {
       const dateText = currentDate.format("YYYY-MM-DD");
@@ -159,7 +212,8 @@ export async function syncMarketData(market) {
       const zipBuffer = await fetchZipBuffer(url);
       if (!zipBuffer) {
         processedDays += 1;
-        const progress = Math.min(99, (processedDays / totalDays) * 100);
+        const daysDoneOverall = syncStartDay.diff(startDate, "day") + processedDays;
+        const progress = Math.min(99, (daysDoneOverall / totalDaysOverall) * 100);
         await updateSyncState(client, market.id, "syncing", progress, null);
         currentDate = currentDate.add(1, "day");
         continue;
@@ -169,12 +223,16 @@ export async function syncMarketData(market) {
       try {
         const rows = await parseZipCsv(zipBuffer);
         const { latestOpenTime } = await insertCandles(client, tableName, rows);
-        if (latestOpenTime !== null && latestOpenTime > latestTimestamp) {
+        if (
+          latestOpenTime !== null &&
+          isPlausibleKlineMs(latestOpenTime) &&
+          latestOpenTime > latestTimestamp
+        ) {
           latestTimestamp = latestOpenTime;
           await client.query(
             `
             UPDATE markets
-            SET last_timestamp = $1, updated_at = NOW()
+            SET last_timestamp = GREATEST(last_timestamp, $1), updated_at = NOW()
             WHERE id = $2
             `,
             [latestTimestamp, market.id]
@@ -186,7 +244,8 @@ export async function syncMarketData(market) {
         throw error;
       }
       processedDays += 1;
-      const progress = Math.min(99, (processedDays / totalDays) * 100);
+      const daysDoneOverall = syncStartDay.diff(startDate, "day") + processedDays;
+      const progress = Math.min(99, (daysDoneOverall / totalDaysOverall) * 100);
       await updateSyncState(client, market.id, "syncing", progress, null);
       currentDate = currentDate.add(1, "day");
     }

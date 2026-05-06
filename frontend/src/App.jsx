@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 
@@ -7,7 +7,33 @@ function toMs(dateValue) {
 }
 
 function formatTs(ts) {
-  return new Date(Number(ts)).toISOString();
+  if (ts === null || ts === undefined) {
+    return "—";
+  }
+  const raw = String(ts).trim();
+  if (!/^\d+$/.test(raw)) {
+    const n = Number(raw);
+    return Number.isFinite(n) ? formatMsAsIso(n) : String(ts);
+  }
+  if (raw.length > 15) {
+    return `${raw} ms (unexpected magnitude — check DB value)`;
+  }
+  return formatMsAsIso(Number(raw));
+}
+
+function formatMsAsIso(ms) {
+  if (!Number.isFinite(ms)) {
+    return "invalid";
+  }
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) {
+    return String(ms);
+  }
+  const y = d.getUTCFullYear();
+  if (y < 2000 || y > 2100) {
+    return `${ms} ms (not a normal candle time)`;
+  }
+  return d.toISOString();
 }
 
 export default function App() {
@@ -16,7 +42,8 @@ export default function App() {
   const [pagination, setPagination] = useState({ page: 1, pageSize: 8, total: 0, totalPages: 1 });
   const [searchInput, setSearchInput] = useState("");
   const [searchKeyword, setSearchKeyword] = useState("");
-  const [allMarketNames, setAllMarketNames] = useState([]);
+  const [allMarkets, setAllMarkets] = useState([]);
+  const [dataCheckById, setDataCheckById] = useState({});
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -24,11 +51,9 @@ export default function App() {
   const [newInterval, setNewInterval] = useState("1m");
   const [newStartDate, setNewStartDate] = useState("");
 
-  const [downloadMarket, setDownloadMarket] = useState("");
+  const [downloadMarketId, setDownloadMarketId] = useState("");
   const [downloadStartDate, setDownloadStartDate] = useState("");
   const [downloadEndDate, setDownloadEndDate] = useState("");
-
-  const marketNames = useMemo(() => allMarketNames, [allMarketNames]);
 
   async function loadInitial(targetPage = pagination.page, targetSearch = searchKeyword) {
     setLoading(true);
@@ -51,12 +76,12 @@ export default function App() {
         total: marketData.total ?? 0,
         totalPages: marketData.totalPages ?? 1,
       });
-      setAllMarketNames((allMarketData.items ?? []).map((item) => item.name));
+      setAllMarkets(allMarketData.items ?? []);
       if (intervalData.length) {
         setNewInterval(intervalData[0]);
       }
-      if (allMarketData.items?.length && !downloadMarket) {
-        setDownloadMarket(allMarketData.items[0].name);
+      if (allMarketData.items?.length && !downloadMarketId) {
+        setDownloadMarketId(String(allMarketData.items[0].id));
       }
     } catch {
       setMessage("Failed to load data. Is backend running?");
@@ -77,10 +102,10 @@ export default function App() {
   }, [pagination.page, searchKeyword]);
 
   useEffect(() => {
-    if (!downloadMarket && marketNames.length) {
-      setDownloadMarket(marketNames[0]);
+    if (!downloadMarketId && allMarkets.length) {
+      setDownloadMarketId(String(allMarkets[0].id));
     }
-  }, [downloadMarket, marketNames]);
+  }, [downloadMarketId, allMarkets]);
 
   async function createMarket(event) {
     event.preventDefault();
@@ -136,34 +161,33 @@ export default function App() {
     setMessage("Sync queued");
   }
 
-  async function updateMarket(id, interval, startTimestamp) {
-    const response = await fetch(`${API_BASE}/markets/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        interval,
-        start_timestamp: Number(startTimestamp),
-      }),
-    });
-    if (!response.ok) {
-      const errorBody = await response.json().catch(() => ({}));
-      setMessage(errorBody.message ?? "Failed to update market");
-      return;
-    }
-    await loadInitial(pagination.page, searchKeyword);
-    setMessage("Market updated and sync queued");
-  }
-
   function downloadCsv(event) {
     event.preventDefault();
-    if (!downloadMarket || !downloadStartDate || !downloadEndDate) {
+    const selected = allMarkets.find((m) => String(m.id) === downloadMarketId);
+    if (!selected || !downloadStartDate || !downloadEndDate) {
       setMessage("Please fill download form");
       return;
     }
     const start = toMs(downloadStartDate);
     const end = toMs(downloadEndDate) + 24 * 60 * 60 * 1000 - 1;
-    const url = `${API_BASE}/markets/download?market=${encodeURIComponent(downloadMarket)}&start=${start}&end=${end}`;
+    const url = `${API_BASE}/markets/download?market=${encodeURIComponent(selected.name)}&interval=${encodeURIComponent(selected.interval)}&start=${start}&end=${end}`;
     window.open(url, "_blank");
+  }
+
+  async function toggleLive(marketId, enabled) {
+    setMessage("");
+    const response = await fetch(`${API_BASE}/markets/${marketId}/live`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}));
+      setMessage(errorBody.message ?? "Live toggle failed");
+      return;
+    }
+    await loadInitial(pagination.page, searchKeyword);
+    setMessage(enabled ? "Added to live stream" : "Removed from live stream");
   }
 
   async function applySearch(event) {
@@ -175,6 +199,33 @@ export default function App() {
   async function goToPage(nextPage) {
     const boundedPage = Math.max(1, Math.min(nextPage, pagination.totalPages));
     await loadInitial(boundedPage, searchKeyword);
+  }
+
+  async function runDataCheck(marketId) {
+    setDataCheckById((prev) => ({
+      ...prev,
+      [marketId]: { loading: true, error: null, data: null },
+    }));
+    try {
+      const response = await fetch(`${API_BASE}/markets/${marketId}/data-check?maxReported=500`);
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setDataCheckById((prev) => ({
+          ...prev,
+          [marketId]: { loading: false, error: body.message ?? "Check failed", data: null },
+        }));
+        return;
+      }
+      setDataCheckById((prev) => ({
+        ...prev,
+        [marketId]: { loading: false, error: null, data: body },
+      }));
+    } catch {
+      setDataCheckById((prev) => ({
+        ...prev,
+        [marketId]: { loading: false, error: "Network error", data: null },
+      }));
+    }
   }
 
   return (
@@ -227,10 +278,14 @@ export default function App() {
         <form onSubmit={downloadCsv} className="row-form">
           <label>
             Market
-            <select value={downloadMarket} onChange={(e) => setDownloadMarket(e.target.value)} disabled={!marketNames.length}>
-              {marketNames.map((name) => (
-                <option key={name} value={name}>
-                  {name}
+            <select
+              value={downloadMarketId}
+              onChange={(e) => setDownloadMarketId(e.target.value)}
+              disabled={!allMarkets.length}
+            >
+              {allMarkets.map((m) => (
+                <option key={m.id} value={String(m.id)}>
+                  {m.name} · {m.interval}
                 </option>
               ))}
             </select>
@@ -253,7 +308,7 @@ export default function App() {
               required
             />
           </label>
-          <button type="submit" className="primary" disabled={!marketNames.length}>
+          <button type="submit" className="primary" disabled={!allMarkets.length}>
             Download CSV
           </button>
         </form>
@@ -291,10 +346,11 @@ export default function App() {
             <MarketRow
               key={market.id}
               market={market}
-              intervals={intervalOptions}
               onDelete={deleteMarket}
               onSync={syncMarket}
-              onSave={updateMarket}
+              onDataCheck={runDataCheck}
+              onLive={toggleLive}
+              dataCheck={dataCheckById[market.id]}
             />
           ))}
         </div>
@@ -318,41 +374,68 @@ export default function App() {
   );
 }
 
-function MarketRow({ market, intervals, onDelete, onSync, onSave }) {
-  const [interval, setInterval] = useState(market.interval);
-  const [startDate, setStartDate] = useState(new Date(Number(market.start_timestamp)).toISOString().slice(0, 10));
-
+function MarketRow({ market, onDelete, onSync, onDataCheck, onLive, dataCheck }) {
   return (
     <div className="market-row">
       <div className="market-head">
-        <strong>{market.name}</strong>
+        <strong>
+          {market.name} · {market.interval}
+        </strong>
+        {market.live_enabled ? <span className="live-badge">LIVE</span> : null}
         <div className="meta">last_timestamp: {formatTs(market.last_timestamp)}</div>
         <div className="meta">
           status: {market.sync_status ?? "idle"} ({Number(market.sync_progress ?? 0).toFixed(1)}%)
         </div>
         {market.sync_error ? <div className="meta error-text">error: {market.sync_error}</div> : null}
       </div>
-      <label>
-        Interval
-        <select value={interval} onChange={(e) => setInterval(e.target.value)}>
-          {intervals.map((item) => (
-            <option key={item} value={item}>
-              {item}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        Start Date
-        <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-      </label>
-      <button className="primary" onClick={() => onSave(market.id, interval, toMs(startDate))}>
-        Update
-      </button>
-      <button onClick={() => onSync(market.id)}>Sync</button>
-      <button className="danger" onClick={() => onDelete(market.id)}>
-        Delete
-      </button>
+      <div className="market-actions">
+        <button onClick={() => onSync(market.id)}>Sync</button>
+        <button type="button" className="ghost" onClick={() => onDataCheck(market.id)}>
+          Check
+        </button>
+        <button
+          type="button"
+          className={market.live_enabled ? "ghost" : "primary"}
+          onClick={() => onLive(market.id, !market.live_enabled)}
+        >
+          {market.live_enabled ? "Remove from Live" : "Add to Live"}
+        </button>
+        <button className="danger" onClick={() => onDelete(market.id)}>
+          Delete
+        </button>
+      </div>
+      {dataCheck?.loading ? <div className="check-banner">Checking open_time gaps…</div> : null}
+      {dataCheck?.error ? <div className="check-banner error-text">Check: {dataCheck.error}</div> : null}
+      {dataCheck?.data ? (
+        <div className="check-panel">
+          <div className="check-summary">
+            <strong>Gap check</strong> — step {dataCheck.data.stepMs} ms ({dataCheck.data.interval}). Total missing slots:{" "}
+            <strong>{dataCheck.data.totalMissingSlots}</strong>
+            {dataCheck.data.missingTruncated ? " (listed open times truncated — increase maxReported in API if needed)" : ""}
+          </div>
+          {Number(dataCheck.data.totalMissingSlots) === 0 && !dataCheck.data.irregularPairs?.length ? (
+            <p className="meta">No gaps found in the checked range.</p>
+          ) : null}
+          {dataCheck.data.irregularPairs?.length ? (
+            <details className="check-details">
+              <summary>Irregular spacing ({dataCheck.data.irregularPairs.length})</summary>
+              <pre>{JSON.stringify(dataCheck.data.irregularPairs, null, 2)}</pre>
+            </details>
+          ) : null}
+          {dataCheck.data.gaps?.length ? (
+            <details className="check-details" open>
+              <summary>Gaps ({dataCheck.data.gaps.length})</summary>
+              <pre>{JSON.stringify(dataCheck.data.gaps, null, 2)}</pre>
+            </details>
+          ) : null}
+          {dataCheck.data.missingOpenTimes?.length ? (
+            <details className="check-details">
+              <summary>Missing open_time samples ({dataCheck.data.missingOpenTimes.length})</summary>
+              <pre>{dataCheck.data.missingOpenTimes.join("\n")}</pre>
+            </details>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

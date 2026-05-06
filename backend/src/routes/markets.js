@@ -1,10 +1,108 @@
 import express from "express";
 import { pool } from "../db.js";
 import { INTERVAL_OPTIONS } from "../constants.js";
-import { isValidMarketName, sanitizeCsvValue, toTableName } from "../utils.js";
+import { isValidMarketName, sanitizeCsvValue, toHistoricalTableName, toLiveTableName } from "../utils.js";
 import { enqueueMarketSync, getSyncQueueStatus } from "../services/syncQueue.js";
+import { checkMarketOpenTimeGaps } from "../services/marketDataCheck.js";
+import { setMarketLiveEnabled } from "../services/binanceLive.js";
 
 export const marketsRouter = express.Router();
+
+const LIST_SELECT = `
+  id, name, interval, start_timestamp, last_timestamp, sync_status, sync_progress, sync_error,
+  live_enabled, created_at, updated_at
+`;
+
+const CANDLE_SELECT = `
+  open_time, open, high, low, close, volume, close_time,
+  quote_asset_volume, number_of_trades, taker_buy_base_asset_volume,
+  taker_buy_quote_asset_volume, ignore_value
+`;
+
+async function queryCandlesFromTable(tableName, start, end) {
+  try {
+    const result = await pool.query(
+      `
+      SELECT ${CANDLE_SELECT}
+      FROM ${tableName}
+      WHERE open_time >= $1 AND open_time <= $2
+      ORDER BY open_time ASC
+      `,
+      [start, end]
+    );
+    return result.rows;
+  } catch (error) {
+    if (error.message?.includes("does not exist")) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+function mergeCandlesByOpenTime(historicalRows, liveRows) {
+  const map = new Map();
+  for (const row of historicalRows) {
+    map.set(String(row.open_time), row);
+  }
+  for (const row of liveRows) {
+    map.set(String(row.open_time), row);
+  }
+  return [...map.entries()]
+    .sort((a, b) => Number(a[0]) - Number(b[0]))
+    .map(([, row]) => row);
+}
+
+/**
+ * POST body: { market, interval, start_timestamp, end_timestamp }
+ * (aliases: name, start, end)
+ * Returns live rows, historical rows, and combined (same open_time: live overwrites historical).
+ */
+marketsRouter.post("/candles", async (req, res, next) => {
+  try {
+    const rawName = req.body.market ?? req.body.name;
+    const interval = req.body.interval;
+    const start = Number(req.body.start_timestamp ?? req.body.start);
+    const end = Number(req.body.end_timestamp ?? req.body.end);
+
+    if (!isValidMarketName(rawName)) {
+      return res.status(400).json({ message: "Invalid market name" });
+    }
+    if (!INTERVAL_OPTIONS.includes(interval)) {
+      return res.status(400).json({ message: "Invalid interval" });
+    }
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+      return res.status(400).json({ message: "Invalid start_timestamp or end_timestamp" });
+    }
+
+    const market = String(rawName).toUpperCase();
+    const liveTable = toLiveTableName(market, interval);
+    const histTable = toHistoricalTableName(market, interval);
+
+    const [fromLive, fromHistorical] = await Promise.all([
+      queryCandlesFromTable(liveTable, start, end),
+      queryCandlesFromTable(histTable, start, end),
+    ]);
+
+    const combined = mergeCandlesByOpenTime(fromHistorical, fromLive);
+
+    res.json({
+      market,
+      interval,
+      start_timestamp: start,
+      end_timestamp: end,
+      fromLive,
+      fromHistorical,
+      combined,
+      counts: {
+        fromLive: fromLive.length,
+        fromHistorical: fromHistorical.length,
+        combined: combined.length,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 marketsRouter.get("/", async (_req, res, next) => {
   try {
@@ -23,7 +121,7 @@ marketsRouter.get("/", async (_req, res, next) => {
 
     const result = await pool.query(
       `
-      SELECT id, name, interval, start_timestamp, last_timestamp, sync_status, sync_progress, sync_error, created_at, updated_at
+      SELECT ${LIST_SELECT}
       FROM markets
       ${filterSql}
       ORDER BY id DESC
@@ -62,7 +160,7 @@ marketsRouter.post("/", async (req, res, next) => {
       `
         INSERT INTO markets (name, interval, start_timestamp, last_timestamp)
         VALUES ($1, $2, $3, $3)
-        RETURNING id, name, interval, start_timestamp, last_timestamp, sync_status, sync_progress, sync_error, created_at, updated_at
+        RETURNING ${LIST_SELECT}
       `,
       [normalizedName, interval, value]
     );
@@ -76,48 +174,25 @@ marketsRouter.post("/", async (req, res, next) => {
   }
 });
 
-marketsRouter.put("/:id", async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { interval, start_timestamp: startTimestamp } = req.body;
-
-    if (!INTERVAL_OPTIONS.includes(interval)) {
-      return res.status(400).json({ message: "Invalid interval" });
-    }
-    if (!Number.isFinite(Number(startTimestamp))) {
-      return res.status(400).json({ message: "Invalid start_timestamp" });
-    }
-
-    const result = await pool.query(
-      `
-      UPDATE markets
-      SET interval = $1, start_timestamp = $2, updated_at = NOW()
-      WHERE id = $3
-      RETURNING id, name, interval, start_timestamp, last_timestamp, sync_status, sync_progress, sync_error, created_at, updated_at
-      `,
-      [interval, Number(startTimestamp), Number(id)]
-    );
-
-    if (!result.rowCount) {
-      return res.status(404).json({ message: "Market not found" });
-    }
-    enqueueMarketSync(result.rows[0].id);
-    res.json(result.rows[0]);
-  } catch (error) {
-    next(error);
-  }
-});
-
 marketsRouter.delete("/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
-    const target = await pool.query("SELECT name FROM markets WHERE id = $1", [Number(id)]);
+    const target = await pool.query("SELECT name, interval, live_enabled FROM markets WHERE id = $1", [
+      Number(id),
+    ]);
     if (!target.rowCount) {
       return res.status(404).json({ message: "Market not found" });
     }
 
-    const tableName = toTableName(target.rows[0].name);
-    await pool.query(`DROP TABLE IF EXISTS ${tableName}`);
+    const { name, interval, live_enabled: liveEnabled } = target.rows[0];
+    if (liveEnabled) {
+      await setMarketLiveEnabled(Number(id), false);
+    }
+
+    const histTable = toHistoricalTableName(name, interval);
+    const liveTable = toLiveTableName(name, interval);
+    await pool.query(`DROP TABLE IF EXISTS ${histTable}`);
+    await pool.query(`DROP TABLE IF EXISTS ${liveTable}`);
     await pool.query("DELETE FROM markets WHERE id = $1", [Number(id)]);
     res.status(204).send();
   } catch (error) {
@@ -142,15 +217,73 @@ marketsRouter.post("/:id/sync", async (req, res, next) => {
   }
 });
 
+marketsRouter.post("/:id/live", async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ message: "Invalid market id" });
+    }
+    if (typeof req.body?.enabled !== "boolean") {
+      return res.status(400).json({ message: "Body must include enabled: boolean" });
+    }
+    const result = await setMarketLiveEnabled(id, req.body.enabled);
+    if (!result.ok) {
+      if (result.error === "not_found") {
+        return res.status(404).json({ message: "Market not found" });
+      }
+      return res.status(400).json({ message: "Invalid request" });
+    }
+    const row = await pool.query("SELECT live_enabled FROM markets WHERE id = $1", [id]);
+    res.json({ live_enabled: row.rows[0].live_enabled });
+  } catch (error) {
+    next(error);
+  }
+});
+
 marketsRouter.get("/sync-status", (_req, res) => {
   res.json(getSyncQueueStatus());
 });
 
+/** Gap check: expected open_time grid (default step from market interval; override with ?stepMs=60000). */
+marketsRouter.get("/:id/data-check", async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) {
+      return res.status(400).json({ message: "Invalid market id" });
+    }
+    const maxReported = Math.min(5000, Math.max(1, Number(req.query.maxReported ?? 500) || 500));
+    const stepMsRaw = req.query.stepMs;
+    const stepMs =
+      stepMsRaw === undefined || stepMsRaw === ""
+        ? undefined
+        : Number(stepMsRaw);
+    if (stepMsRaw !== undefined && stepMsRaw !== "" && (!Number.isFinite(stepMs) || stepMs <= 0)) {
+      return res.status(400).json({ message: "Invalid stepMs" });
+    }
+
+    const marketResult = await pool.query("SELECT * FROM markets WHERE id = $1", [id]);
+    if (!marketResult.rowCount) {
+      return res.status(404).json({ message: "Market not found" });
+    }
+
+    const payload = await checkMarketOpenTimeGaps(marketResult.rows[0], { stepMs, maxReported });
+    res.json(payload);
+  } catch (error) {
+    if (error.message?.includes("does not exist")) {
+      return res.status(404).json({ message: "Market candle table not found" });
+    }
+    next(error);
+  }
+});
+
 marketsRouter.get("/download", async (req, res, next) => {
   try {
-    const { market, start, end } = req.query;
+    const { market, interval, start, end } = req.query;
     if (!isValidMarketName(market)) {
       return res.status(400).json({ message: "Invalid market name query" });
+    }
+    if (!INTERVAL_OPTIONS.includes(interval)) {
+      return res.status(400).json({ message: "Invalid interval query" });
     }
     const startTimestamp = Number(start);
     const endTimestamp = Number(end);
@@ -158,7 +291,7 @@ marketsRouter.get("/download", async (req, res, next) => {
       return res.status(400).json({ message: "Invalid start/end range" });
     }
 
-    const tableName = toTableName(market.toUpperCase());
+    const tableName = toHistoricalTableName(market.toUpperCase(), interval);
     const result = await pool.query(
       `
       SELECT open_time, open, high, low, close, volume, close_time,
@@ -208,7 +341,7 @@ marketsRouter.get("/download", async (req, res, next) => {
       );
     }
 
-    const filename = `${market.toUpperCase()}-${startTimestamp}-${endTimestamp}.csv`;
+    const filename = `${market.toUpperCase()}-${interval}-${startTimestamp}-${endTimestamp}.csv`;
     res.setHeader("Content-Type", "text/csv");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.send(lines.join("\n"));

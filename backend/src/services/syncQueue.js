@@ -4,6 +4,7 @@ import { syncMarketData } from "./binanceSync.js";
 
 const queuedMarketIds = new Set();
 const runningMarketIds = new Set();
+const inFlightMarketIds = new Set();
 const pendingQueue = [];
 
 let activeWorkers = 0;
@@ -34,6 +35,7 @@ async function runWorker() {
         console.error(`Sync job failed for market id ${marketId}`, error.message);
       } finally {
         runningMarketIds.delete(marketId);
+        inFlightMarketIds.delete(marketId);
       }
     }
   } finally {
@@ -50,10 +52,11 @@ export function enqueueMarketSync(marketId) {
   if (!Number.isFinite(numericMarketId)) {
     return { accepted: false, reason: "invalid_id" };
   }
-  if (queuedMarketIds.has(numericMarketId) || runningMarketIds.has(numericMarketId)) {
+  if (inFlightMarketIds.has(numericMarketId)) {
     return { accepted: false, reason: "already_scheduled" };
   }
 
+  inFlightMarketIds.add(numericMarketId);
   queuedMarketIds.add(numericMarketId);
   pendingQueue.push(numericMarketId);
   void pool.query(
@@ -74,5 +77,6 @@ export function getSyncQueueStatus() {
     activeWorkers,
     queued: pendingQueue.length,
     runningMarketIds: [...runningMarketIds],
+    inFlightMarketIds: [...inFlightMarketIds],
   };
 }

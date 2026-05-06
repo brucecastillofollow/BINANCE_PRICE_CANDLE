@@ -22,7 +22,7 @@ export function createApp() {
   app.use((error, _req, res, _next) => {
     console.error(error);
     if (error.code === "23505") {
-      return res.status(409).json({ message: "Market already exists" });
+      return res.status(409).json({ message: "Market with this name and interval already exists" });
     }
     res.status(500).json({ message: "Internal server error" });
   });
