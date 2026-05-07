@@ -219,6 +219,8 @@ export async function setMarketLiveEnabled(marketId, enabled) {
   }
   const symSet = symbolsByInterval.get(interval);
   if (enabled) {
+    // Create live table immediately when market is enabled for live ingest.
+    await ensureLiveTable(toLiveTableName(String(name).toUpperCase(), interval));
     symSet.add(String(name).toUpperCase());
   } else {
     symSet.delete(String(name).toUpperCase());
