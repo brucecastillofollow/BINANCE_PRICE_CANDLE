@@ -11,6 +11,10 @@ const symbolsByInterval = new Map();
 
 /** interval -> { ws: WebSocket | null, generation: number } */
 const connections = new Map();
+const WS_BASES = [
+  "wss://stream.binance.com:9443/stream?streams=",
+  "wss://data-stream.binance.vision/stream?streams=",
+];
 
 const CANDLE_DDL = `
   open_time BIGINT PRIMARY KEY,
@@ -47,12 +51,20 @@ function closeInterval(interval) {
   const conn = connections.get(interval);
   if (conn?.ws) {
     conn.ws.removeAllListeners();
-    conn.ws.close();
+    try {
+      if (conn.ws.readyState === WebSocket.CONNECTING) {
+        conn.ws.terminate();
+      } else {
+        conn.ws.close();
+      }
+    } catch {
+      // Ignore race where socket closes between state check and close().
+    }
   }
   connections.delete(interval);
 }
 
-function buildStreamUrl(interval) {
+function buildStreamUrl(interval, baseIdx = 0) {
   const syms = symbolsByInterval.get(interval);
   if (!syms || syms.size === 0) {
     return null;
@@ -62,7 +74,8 @@ function buildStreamUrl(interval) {
     .sort()
     .map((s) => `${s.toLowerCase()}@kline_${token}`)
     .join("/");
-  return `wss://stream.binance.com:9443/stream?streams=${streams}`;
+  const base = WS_BASES[baseIdx] ?? WS_BASES[0];
+  return `${base}${streams}`;
 }
 
 async function handleKlineClose(symbolUpper, interval, k) {
@@ -114,8 +127,8 @@ async function handleKlineClose(symbolUpper, interval, k) {
   );
 }
 
-function openInterval(interval) {
-  const url = buildStreamUrl(interval);
+function openInterval(interval, baseIdx = 0) {
+  const url = buildStreamUrl(interval, baseIdx);
   if (!url) {
     closeInterval(interval);
     return;
@@ -124,7 +137,12 @@ function openInterval(interval) {
   closeInterval(interval);
   const generation = Date.now();
   const ws = new WebSocket(url);
-  connections.set(interval, { ws, generation });
+  connections.set(interval, { ws, generation, baseIdx });
+  console.log(`Live WS connecting [${interval}] ${url}`);
+
+  ws.on("open", () => {
+    console.log(`Live WS connected [${interval}] via base #${baseIdx + 1}`);
+  });
 
   ws.on("message", (raw) => {
     void (async () => {
@@ -145,6 +163,10 @@ function openInterval(interval) {
 
   ws.on("error", (err) => {
     console.error(`Live WS error [${interval}]`, err.message);
+    if (String(err.message).includes("451") && baseIdx + 1 < WS_BASES.length) {
+      console.warn(`Live WS [${interval}] switching to fallback endpoint`);
+      openInterval(interval, baseIdx + 1);
+    }
   });
 
   ws.on("close", () => {
@@ -159,7 +181,7 @@ function openInterval(interval) {
         if (!c2 || c2.generation !== generation) {
           return;
         }
-        openInterval(interval);
+        openInterval(interval, c2.baseIdx ?? baseIdx);
       }, 4000);
     }
   });
@@ -238,6 +260,7 @@ export function getLiveStatus() {
     intervals[interval] = {
       symbols: [...syms],
       connected: Boolean(ws && ws.readyState === WebSocket.OPEN),
+      endpoint: WS_BASES[connections.get(interval)?.baseIdx ?? 0],
     };
   }
   return { intervals };

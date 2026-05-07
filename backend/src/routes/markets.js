@@ -4,7 +4,7 @@ import { INTERVAL_OPTIONS } from "../constants.js";
 import { isValidMarketName, sanitizeCsvValue, toHistoricalTableName, toLiveTableName } from "../utils.js";
 import { enqueueMarketSync, getSyncQueueStatus } from "../services/syncQueue.js";
 import { checkMarketOpenTimeGaps } from "../services/marketDataCheck.js";
-import { setMarketLiveEnabled } from "../services/binanceLive.js";
+import { getLiveStatus, setMarketLiveEnabled } from "../services/binanceLive.js";
 
 export const marketsRouter = express.Router();
 
@@ -242,6 +242,10 @@ marketsRouter.post("/:id/live", async (req, res, next) => {
 
 marketsRouter.get("/sync-status", (_req, res) => {
   res.json(getSyncQueueStatus());
+});
+
+marketsRouter.get("/live-status", (_req, res) => {
+  res.json(getLiveStatus());
 });
 
 /** Gap check: expected open_time grid (default step from market interval; override with ?stepMs=60000). */
