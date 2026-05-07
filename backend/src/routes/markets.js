@@ -77,6 +77,15 @@ marketsRouter.post("/candles", async (req, res, next) => {
     const market = String(rawName).toUpperCase();
     const liveTable = toLiveTableName(market, interval);
     const histTable = toHistoricalTableName(market, interval);
+    const liveCutoffMs = Date.now() - 48 * 60 * 60 * 1000;
+
+    try {
+      await pool.query(`DELETE FROM ${liveTable} WHERE open_time < $1`, [liveCutoffMs]);
+    } catch (error) {
+      if (!error.message?.includes("does not exist")) {
+        throw error;
+      }
+    }
 
     const [fromLive, fromHistorical] = await Promise.all([
       queryCandlesFromTable(liveTable, start, end),
