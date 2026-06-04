@@ -20,6 +20,8 @@ export const config = {
   port: Number(process.env.BACKEND_PORT ?? process.env.PORT ?? 4000),
   databaseUrl,
   syncWorkerCount: Number(process.env.SYNC_WORKER_COUNT ?? 3),
+  /** UTC hour (0–23) for automatic daily sync of all markets */
+  dailySyncHourUtc: Number(process.env.DAILY_SYNC_HOUR_UTC ?? 1),
   corsOrigin:
     process.env.CORS_ORIGIN ??
     `http://localhost:${Number(process.env.FRONTEND_PORT ?? 5173)}`,

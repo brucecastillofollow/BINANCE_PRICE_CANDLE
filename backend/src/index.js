@@ -4,6 +4,7 @@ import { closeDb, initDb } from "./db.js";
 import { pool } from "./db.js";
 import { enqueueMarketSync } from "./services/syncQueue.js";
 import { initLiveFromDb, shutdownLive } from "./services/binanceLive.js";
+import { startDailyMarketSync } from "./services/dailySyncSchedule.js";
 
 async function syncAllMarkets() {
   const result = await pool.query("SELECT * FROM markets");
@@ -29,8 +30,13 @@ async function bootstrap() {
     console.error("Initial background sync failed", error.message);
   });
 
+  const stopDailySync = startDailyMarketSync(syncAllMarkets, {
+    hourUtc: config.dailySyncHourUtc,
+  });
+
   process.on("SIGINT", async () => {
     console.log("Shutting down...");
+    stopDailySync();
     shutdownLive();
     server.close(async () => {
       await closeDb();

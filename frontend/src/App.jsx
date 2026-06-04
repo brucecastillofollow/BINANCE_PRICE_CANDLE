@@ -55,8 +55,14 @@ export default function App() {
   const [downloadStartDate, setDownloadStartDate] = useState("");
   const [downloadEndDate, setDownloadEndDate] = useState("");
 
-  async function loadInitial(targetPage = pagination.page, targetSearch = searchKeyword) {
-    setLoading(true);
+  async function loadInitial(
+    targetPage = pagination.page,
+    targetSearch = searchKeyword,
+    { showLoading = false } = {}
+  ) {
+    if (showLoading) {
+      setLoading(true);
+    }
     try {
       const [intervalRes, marketRes, allNamesRes] = await Promise.all([
         fetch(`${API_BASE}/interval-options`),
@@ -86,17 +92,19 @@ export default function App() {
     } catch {
       setMessage("Failed to load data. Is backend running?");
     } finally {
-      setLoading(false);
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   }
 
   useEffect(() => {
-    loadInitial(1, "");
+    void loadInitial(1, "", { showLoading: true });
   }, []);
 
   useEffect(() => {
     const timer = setInterval(() => {
-      void loadInitial(pagination.page, searchKeyword);
+      void loadInitial(pagination.page, searchKeyword, { showLoading: false });
     }, 5000);
     return () => clearInterval(timer);
   }, [pagination.page, searchKeyword]);
