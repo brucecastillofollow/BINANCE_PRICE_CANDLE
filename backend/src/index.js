@@ -5,10 +5,24 @@ import { pool } from "./db.js";
 import { enqueueMarketSync } from "./services/syncQueue.js";
 import { initLiveFromDb, shutdownLive } from "./services/binanceLive.js";
 import { startDailyMarketSync } from "./services/dailySyncSchedule.js";
+import { sortMarketsBySyncDelay } from "./services/marketSyncDelay.js";
 
-async function syncAllMarkets() {
+/** Enqueue only markets behind yesterday; most delayed first. */
+async function syncDelayedMarketsFirst() {
   const result = await pool.query("SELECT * FROM markets");
-  for (const market of result.rows) {
+  const delayed = sortMarketsBySyncDelay(result.rows);
+  const upToDate = result.rows.length - delayed.length;
+
+  if (!delayed.length) {
+    console.log(`Startup sync: all ${result.rows.length} market(s) up to date`);
+    return;
+  }
+
+  console.log(
+    `Startup sync: ${delayed.length} market(s) behind (${upToDate} up to date), fetching by delay`
+  );
+  for (const { market, delayDays } of delayed) {
+    console.log(`  queue ${market.name} ${market.interval}: ${delayDays} day(s) behind`);
     enqueueMarketSync(market.id);
   }
 }
@@ -25,12 +39,12 @@ async function bootstrap() {
     console.error("Live stream init failed", error.message);
   });
 
-  // Do not block API startup on potentially long historical sync.
-  syncAllMarkets().catch((error) => {
+  // Check delay per market, then fetch only those behind (most delayed first).
+  syncDelayedMarketsFirst().catch((error) => {
     console.error("Initial background sync failed", error.message);
   });
 
-  const stopDailySync = startDailyMarketSync(syncAllMarkets, {
+  const stopDailySync = startDailyMarketSync(syncDelayedMarketsFirst, {
     hourUtc: config.dailySyncHourUtc,
   });
 

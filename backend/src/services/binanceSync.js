@@ -4,6 +4,7 @@ import JSZip from "jszip";
 import { parse } from "csv-parse/sync";
 import { pool } from "../db.js";
 import { normalizeBinanceCsvTimeMs, toHistoricalTableName } from "../utils.js";
+import { firstCalendarDayToFetch } from "./marketSyncDelay.js";
 
 dayjs.extend(utc);
 
@@ -29,20 +30,6 @@ function toFiniteMs(value) {
 
 function isPlausibleKlineMs(ms) {
   return ms >= MIN_KLINE_MS && ms <= maxKlineMs();
-}
-
-/**
- * `last_timestamp` stores max candle open_time. For a full 1m day the last open is ~23:59 UTC.
- * In that case the next fetch should start the following calendar day, not the same day.
- */
-function firstCalendarDayToFetch(lastMs) {
-  const sod = dayjs(lastMs).utc().startOf("day");
-  const msIntoDay = lastMs - sod.valueOf();
-  const fullDayMs = 24 * 60 * 60 * 1000;
-  if (msIntoDay >= fullDayMs - 2 * 60 * 1000) {
-    return sod.add(1, "day");
-  }
-  return sod;
 }
 
 async function ensureMarketTable(client, tableName) {
