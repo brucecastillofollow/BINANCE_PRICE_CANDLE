@@ -8,7 +8,7 @@ import { firstCalendarDayToFetch } from "./marketSyncDelay.js";
 
 dayjs.extend(utc);
 
-const BINANCE_PREFIX = "https://data.binance.vision/?prefix=data/spot/daily/klines";
+const BINANCE_PREFIX = "https://data.binance.vision/data/spot/daily/klines";
 
 /** Binance spot daily klines use Unix ms; reject garbage rows that corrupt `last_timestamp`. */
 const MIN_KLINE_MS = Date.UTC(2010, 0, 1);
