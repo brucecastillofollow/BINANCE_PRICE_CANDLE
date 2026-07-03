@@ -1,12 +1,24 @@
 import express from "express";
 import { pool } from "../db.js";
+import { config } from "../config.js";
 import { INTERVAL_OPTIONS } from "../constants.js";
 import { isValidMarketName, sanitizeCsvValue, toHistoricalTableName, toLiveTableName } from "../utils.js";
 import { enqueueMarketSync, getSyncQueueStatus } from "../services/syncQueue.js";
 import { checkMarketOpenTimeGaps } from "../services/marketDataCheck.js";
 import { getLiveStatus, setMarketLiveEnabled } from "../services/binanceLive.js";
+import { canDownloadToday, getClientKey, recordDownload } from "../services/downloadLimit.js";
+
+import { getIntervalStepMs } from "../intervalStep.js";
 
 export const marketsRouter = express.Router();
+
+const CHART_CANDLE_LIMIT = 5000;
+const CHART_SELECT = "open_time, open, high, low, close";
+
+function isAdminRequest(req) {
+  const key = req.headers["x-admin-key"];
+  return Boolean(config.adminApiKey && key && key === config.adminApiKey);
+}
 
 const LIST_SELECT = `
   id, name, interval, start_timestamp, last_timestamp, sync_status, sync_progress, sync_error,
@@ -19,14 +31,17 @@ const CANDLE_SELECT = `
   taker_buy_quote_asset_volume, ignore_value
 `;
 
-async function queryCandlesFromTable(tableName, start, end) {
+async function queryCandlesFromTable(tableName, start, end, { limit, chartOnly = false } = {}) {
+  const columns = chartOnly ? CHART_SELECT : CANDLE_SELECT;
+  const limitSql = limit ? `LIMIT ${Number(limit)}` : "";
   try {
     const result = await pool.query(
       `
-      SELECT ${CANDLE_SELECT}
+      SELECT ${columns}
       FROM ${tableName}
       WHERE open_time >= $1 AND open_time <= $2
       ORDER BY open_time ASC
+      ${limitSql}
       `,
       [start, end]
     );
@@ -37,6 +52,20 @@ async function queryCandlesFromTable(tableName, start, end) {
     }
     throw error;
   }
+}
+
+function effectiveChartStart(start, end, interval) {
+  const stepMs = getIntervalStepMs(interval);
+  const span = end - start;
+  if (span <= 0) {
+    return { queryStart: start, truncated: false };
+  }
+  const estimated = Math.ceil(span / stepMs) + 1;
+  if (estimated <= CHART_CANDLE_LIMIT) {
+    return { queryStart: start, truncated: false };
+  }
+  const queryStart = Math.max(start, end - CHART_CANDLE_LIMIT * stepMs);
+  return { queryStart, truncated: queryStart > start };
 }
 
 function mergeCandlesByOpenTime(historicalRows, liveRows) {
@@ -78,6 +107,11 @@ marketsRouter.post("/candles", async (req, res, next) => {
     const liveTable = toLiveTableName(market, interval);
     const histTable = toHistoricalTableName(market, interval);
     const liveCutoffMs = Date.now() - 48 * 60 * 60 * 1000;
+    const forChart = req.body.chart !== false;
+    const { queryStart, truncated } = forChart
+      ? effectiveChartStart(start, end, interval)
+      : { queryStart: start, truncated: false };
+    const queryLimit = forChart ? CHART_CANDLE_LIMIT + 1 : undefined;
 
     try {
       await pool.query(`DELETE FROM ${liveTable} WHERE open_time < $1`, [liveCutoffMs]);
@@ -88,11 +122,29 @@ marketsRouter.post("/candles", async (req, res, next) => {
     }
 
     const [fromLive, fromHistorical] = await Promise.all([
-      queryCandlesFromTable(liveTable, start, end),
-      queryCandlesFromTable(histTable, start, end),
+      queryCandlesFromTable(liveTable, queryStart, end, { limit: queryLimit, chartOnly: forChart }),
+      queryCandlesFromTable(histTable, queryStart, end, { limit: queryLimit, chartOnly: forChart }),
     ]);
 
-    const combined = mergeCandlesByOpenTime(fromHistorical, fromLive);
+    let combined = mergeCandlesByOpenTime(fromHistorical, fromLive);
+    let resultTruncated = truncated;
+    if (forChart && combined.length > CHART_CANDLE_LIMIT) {
+      combined = combined.slice(-CHART_CANDLE_LIMIT);
+      resultTruncated = true;
+    }
+
+    if (forChart) {
+      return res.json({
+        market,
+        interval,
+        start_timestamp: start,
+        end_timestamp: end,
+        effective_start_timestamp: queryStart,
+        combined,
+        count: combined.length,
+        truncated: resultTruncated,
+      });
+    }
 
     res.json({
       market,
@@ -289,8 +341,30 @@ marketsRouter.get("/:id/data-check", async (req, res, next) => {
   }
 });
 
+marketsRouter.get("/download-status", async (req, res, next) => {
+  try {
+    if (isAdminRequest(req)) {
+      return res.json({ canDownload: true, isAdmin: true });
+    }
+    const clientKey = getClientKey(req);
+    const canDownload = await canDownloadToday(clientKey);
+    res.json({ canDownload, isAdmin: false });
+  } catch (error) {
+    next(error);
+  }
+});
+
 marketsRouter.get("/download", async (req, res, next) => {
   try {
+    const admin = isAdminRequest(req);
+    if (!admin) {
+      const clientKey = getClientKey(req);
+      const allowed = await canDownloadToday(clientKey);
+      if (!allowed) {
+        return res.status(429).json({ message: "CSV download limit reached (once per day)" });
+      }
+    }
+
     const { market, interval, start, end } = req.query;
     if (!isValidMarketName(market)) {
       return res.status(400).json({ message: "Invalid market name query" });
@@ -358,6 +432,10 @@ marketsRouter.get("/download", async (req, res, next) => {
     res.setHeader("Content-Type", "text/csv");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.send(lines.join("\n"));
+
+    if (!admin) {
+      await recordDownload(getClientKey(req));
+    }
   } catch (error) {
     if (error.message.includes("does not exist")) {
       return res.status(404).json({ message: "Market table does not exist. Sync data first." });

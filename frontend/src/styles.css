@@ -20,6 +20,48 @@ body {
   font-size: 30px;
 }
 
+.site-brand-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.site-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.site-logo {
+  flex-shrink: 0;
+  border-radius: 10px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
+}
+
+.site-brand-name {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #6366f1;
+  margin-bottom: 4px;
+}
+
+.site-brand h1 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.2;
+}
+
+.site-brand .subtitle {
+  margin: 6px 0 0;
+}
+
+.site-brand-action {
+  flex-shrink: 0;
+}
+
 .subtitle {
   margin: 8px 0 0;
   color: #475569;
@@ -203,4 +245,54 @@ button:disabled,
 select:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.nav-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  color: #334155;
+  text-decoration: none;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.nav-link:hover {
+  background: #f8fafc;
+}
+
+.chart-wrap {
+  margin-top: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.chart-canvas {
+  width: 100%;
+  min-height: 360px;
+}
+
+.download-note {
+  margin: 0 0 12px;
 }

@@ -25,4 +25,6 @@ export const config = {
   corsOrigin:
     process.env.CORS_ORIGIN ??
     `http://localhost:${Number(process.env.FRONTEND_PORT ?? 5173)}`,
+  adminApiKey: process.env.ADMIN_API_KEY ?? "",
+  trustProxy: process.env.TRUST_PROXY === "1",
 };

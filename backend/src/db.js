@@ -42,6 +42,16 @@ export async function initDb() {
       END IF;
     END $$;
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS csv_downloads (
+      id SERIAL PRIMARY KEY,
+      client_key VARCHAR(128) NOT NULL,
+      download_date DATE NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      UNIQUE (client_key, download_date)
+    )
+  `);
 }
 
 export async function closeDb() {
