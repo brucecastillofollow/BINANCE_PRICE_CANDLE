@@ -27,4 +27,8 @@ export const config = {
     `http://localhost:${Number(process.env.FRONTEND_PORT ?? 5173)}`,
   adminApiKey: process.env.ADMIN_API_KEY ?? "",
   trustProxy: process.env.TRUST_PROXY === "1",
+  jwtSecret: process.env.JWT_SECRET ?? "change-me-in-production-binance",
+  jwtExpireDays: Number(process.env.JWT_EXPIRE_DAYS ?? 7),
+  appBaseUrl: (process.env.APP_BASE_URL ?? `http://localhost:${Number(process.env.BACKEND_PORT ?? 4000)}`).replace(/\/$/, ""),
+  defaultProjectSlug: process.env.DEFAULT_PROJECT_SLUG ?? "binance",
 };

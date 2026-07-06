@@ -5,6 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { config } from "./config.js";
 import { INTERVAL_OPTIONS } from "./constants.js";
+import { createAuthRouter } from "./routes/auth.js";
 import { marketsRouter } from "./routes/markets.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -27,11 +28,12 @@ export function createApp() {
     res.json(INTERVAL_OPTIONS);
   });
 
+  app.use("/auth", createAuthRouter());
   app.use("/markets", marketsRouter);
 
   if (fs.existsSync(frontendDist)) {
     app.use(express.static(frontendDist));
-    app.get(["/", "/admin-views", "/admin-views/*"], (_req, res) => {
+    app.get(["/", "/invite/:token", "/admin-views", "/admin-views/*"], (_req, res) => {
       res.sendFile(path.join(frontendDist, "index.html"));
     });
   }

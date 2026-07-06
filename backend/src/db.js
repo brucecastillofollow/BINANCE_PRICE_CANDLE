@@ -1,5 +1,6 @@
 import pg from "pg";
 import { config } from "./config.js";
+import { ensureDefaultProject, initAuthSchema } from "./auth/store.js";
 
 const { Pool } = pg;
 
@@ -8,6 +9,8 @@ export const pool = new Pool({
 });
 
 export async function initDb() {
+  await initAuthSchema();
+  await ensureDefaultProject();
   await pool.query(`
     CREATE TABLE IF NOT EXISTS markets (
       id SERIAL PRIMARY KEY,

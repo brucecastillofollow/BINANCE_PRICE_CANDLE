@@ -11,6 +11,7 @@ export default defineConfig(({ mode }) => {
       host: "0.0.0.0",
       port: Number(env.FRONTEND_PORT ?? 5173),
       proxy: {
+        "/auth": `http://127.0.0.1:${backendPort}`,
         "/markets": `http://127.0.0.1:${backendPort}`,
         "/interval-options": `http://127.0.0.1:${backendPort}`,
         "/health": `http://127.0.0.1:${backendPort}`,

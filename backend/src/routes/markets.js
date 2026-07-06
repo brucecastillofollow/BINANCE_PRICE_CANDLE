@@ -1,4 +1,5 @@
 import express from "express";
+import { requireAuth, requireDownloadUnlock } from "./auth.js";
 import { pool } from "../db.js";
 import { config } from "../config.js";
 import { INTERVAL_OPTIONS } from "../constants.js";
@@ -10,7 +11,7 @@ import { canDownloadToday, getClientKey, recordDownload } from "../services/down
 
 import { getIntervalStepMs } from "../intervalStep.js";
 
-export const marketsRouter = express.Router();
+export const marketsRouter = express.Router({ mergeParams: true });
 
 const CHART_CANDLE_LIMIT = 5000;
 const CHART_SELECT = "open_time, open, high, low, close";
@@ -341,20 +342,29 @@ marketsRouter.get("/:id/data-check", async (req, res, next) => {
   }
 });
 
-marketsRouter.get("/download-status", async (req, res, next) => {
+marketsRouter.get("/download-status", requireAuth, async (req, res, next) => {
   try {
     if (isAdminRequest(req)) {
-      return res.json({ canDownload: true, isAdmin: true });
+      return res.json({ canDownload: true, isAdmin: true, can_download: true });
     }
+    const { countAcceptedInvitesSent } = await import("../auth/store.js");
+    const invitesSent = await countAcceptedInvitesSent(req.auth.userId, req.auth.projectId);
+    const unlocked = invitesSent >= 1;
     const clientKey = getClientKey(req);
-    const canDownload = await canDownloadToday(clientKey);
-    res.json({ canDownload, isAdmin: false });
+    const dailyOk = unlocked ? await canDownloadToday(clientKey) : false;
+    res.json({
+      canDownload: unlocked && dailyOk,
+      can_download: unlocked && dailyOk,
+      invite_unlocked: unlocked,
+      accepted_invites_sent: invitesSent,
+      isAdmin: false,
+    });
   } catch (error) {
     next(error);
   }
 });
 
-marketsRouter.get("/download", async (req, res, next) => {
+marketsRouter.get("/download", requireDownloadUnlock, async (req, res, next) => {
   try {
     const admin = isAdminRequest(req);
     if (!admin) {

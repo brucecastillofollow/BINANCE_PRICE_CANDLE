@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react";
-import { API_BASE, defaultChartRange, toMs } from "../api.js";
+import { authHeaders, defaultChartRange, marketsBase, toMs } from "../api.js";
+import { useAuth } from "../auth/AuthContext.jsx";
+import { handleFormEnterKeyDown } from "../lib/formEnter.js";
 import OhlcChart from "../components/OhlcChart.jsx";
-import SiteBrand from "../components/SiteBrand.jsx";
 
 export default function Dashboard() {
+  const { token, user, refreshUser } = useAuth();
+  const base = marketsBase();
+
   const [markets, setMarkets] = useState([]);
   const [selectedMarketId, setSelectedMarketId] = useState("");
   const [chartStartDate, setChartStartDate] = useState(() => defaultChartRange(30).startDate);
@@ -13,20 +17,22 @@ export default function Dashboard() {
 
   const [downloadStartDate, setDownloadStartDate] = useState("");
   const [downloadEndDate, setDownloadEndDate] = useState("");
-  const [canDownload, setCanDownload] = useState(true);
+  const [canDownload, setCanDownload] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [chartTruncated, setChartTruncated] = useState(false);
 
   const selectedMarket = markets.find((m) => String(m.id) === selectedMarketId);
+  const inviteUnlocked = Boolean(user?.can_download);
 
   async function loadMarkets() {
     setLoading(true);
     try {
+      const headers = authHeaders(token);
       const [marketRes, statusRes] = await Promise.all([
-        fetch(`${API_BASE}/markets?page=1&pageSize=1000`),
-        fetch(`${API_BASE}/markets/download-status`),
+        fetch(`${base}?page=1&pageSize=1000`, { headers }),
+        fetch(`${base}/download-status`, { headers }),
       ]);
       const marketData = await marketRes.json();
       const statusData = await statusRes.json();
@@ -36,6 +42,7 @@ export default function Dashboard() {
       if (items.length && !selectedMarketId) {
         setSelectedMarketId(String(items[0].id));
       }
+      await refreshUser();
     } catch {
       setMessage("Failed to load markets. Is the backend running?");
     } finally {
@@ -59,9 +66,9 @@ export default function Dashboard() {
     setMessage("");
     setChartTruncated(false);
     try {
-      const response = await fetch(`${API_BASE}/markets/candles`, {
+      const response = await fetch(`${base}/candles`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders(token) },
         body: JSON.stringify({
           market: market.name,
           interval: market.interval,
@@ -87,8 +94,8 @@ export default function Dashboard() {
   }
 
   useEffect(() => {
-    void loadMarkets();
-  }, []);
+    if (token) void loadMarkets();
+  }, [token]);
 
   useEffect(() => {
     if (selectedMarket) {
@@ -98,6 +105,10 @@ export default function Dashboard() {
 
   async function downloadCsv(event) {
     event.preventDefault();
+    if (!inviteUnlocked) {
+      setMessage("Invite at least one friend and have them accept to unlock downloads.");
+      return;
+    }
     if (!selectedMarket || !downloadStartDate || !downloadEndDate) {
       setMessage("Please fill the download form");
       return;
@@ -109,16 +120,14 @@ export default function Dashboard() {
 
     const start = toMs(downloadStartDate);
     const end = toMs(downloadEndDate) + 24 * 60 * 60 * 1000 - 1;
-    const url = `${API_BASE}/markets/download?market=${encodeURIComponent(selectedMarket.name)}&interval=${encodeURIComponent(selectedMarket.interval)}&start=${start}&end=${end}`;
+    const url = `${base}/download?market=${encodeURIComponent(selectedMarket.name)}&interval=${encodeURIComponent(selectedMarket.interval)}&start=${start}&end=${end}`;
 
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, { headers: authHeaders(token) });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
         setMessage(body.message ?? "Download failed");
-        if (response.status === 429) {
-          setCanDownload(false);
-        }
+        if (response.status === 429) setCanDownload(false);
         return;
       }
       const blob = await response.blob();
@@ -136,13 +145,7 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="app">
-      <header className="page-header">
-        <SiteBrand
-          title="Market Dashboard"
-          subtitle="View OHLC charts and export candle data for registered markets."
-        />
-      </header>
+    <>
       {message ? <p className="message">{message}</p> : null}
 
       <section className="card">
@@ -153,11 +156,10 @@ export default function Dashboard() {
           <>
             <form
               className="row-form"
+              onKeyDown={handleFormEnterKeyDown}
               onSubmit={(event) => {
                 event.preventDefault();
-                if (selectedMarket) {
-                  void loadChart(selectedMarket, chartStartDate, chartEndDate);
-                }
+                if (selectedMarket) void loadChart(selectedMarket, chartStartDate, chartEndDate);
               }}
             >
               <label>
@@ -172,30 +174,18 @@ export default function Dashboard() {
               </label>
               <label>
                 Chart Start
-                <input
-                  type="date"
-                  value={chartStartDate}
-                  onChange={(e) => setChartStartDate(e.target.value)}
-                  required
-                />
+                <input type="date" value={chartStartDate} onChange={(e) => setChartStartDate(e.target.value)} required />
               </label>
               <label>
                 Chart End
-                <input
-                  type="date"
-                  value={chartEndDate}
-                  onChange={(e) => setChartEndDate(e.target.value)}
-                  required
-                />
+                <input type="date" value={chartEndDate} onChange={(e) => setChartEndDate(e.target.value)} required />
               </label>
               <button type="submit" className="primary">
                 Refresh Chart
               </button>
             </form>
             {chartLoading ? <p>Loading chart...</p> : null}
-            {chartTruncated ? (
-              <p className="meta">Showing the most recent 5,000 candles for this range.</p>
-            ) : null}
+            {chartTruncated ? <p className="meta">Showing the most recent 5,000 candles for this range.</p> : null}
             <OhlcChart
               candles={candles}
               marketLabel={selectedMarket ? `${selectedMarket.name} · ${selectedMarket.interval}` : ""}
@@ -207,18 +197,16 @@ export default function Dashboard() {
       <section className="card">
         <h2>Download CSV</h2>
         <p className="meta download-note">
-          {canDownload
-            ? "You can download one CSV export per day."
-            : "Daily download used — you can download again tomorrow (UTC)."}
+          {!inviteUnlocked
+            ? "Invite one friend to unlock CSV downloads."
+            : canDownload
+              ? "You can download one CSV export per day."
+              : "Daily download used — you can download again tomorrow (UTC)."}
         </p>
-        <form onSubmit={downloadCsv} className="row-form">
+        <form onSubmit={downloadCsv} onKeyDown={handleFormEnterKeyDown} className="row-form">
           <label>
             Market
-            <select
-              value={selectedMarketId}
-              onChange={(e) => setSelectedMarketId(e.target.value)}
-              disabled={!markets.length}
-            >
+            <select value={selectedMarketId} onChange={(e) => setSelectedMarketId(e.target.value)} disabled={!markets.length}>
               {markets.map((m) => (
                 <option key={m.id} value={String(m.id)}>
                   {m.name} · {m.interval}
@@ -228,27 +216,17 @@ export default function Dashboard() {
           </label>
           <label>
             Start Date
-            <input
-              type="date"
-              value={downloadStartDate}
-              onChange={(e) => setDownloadStartDate(e.target.value)}
-              required
-            />
+            <input type="date" value={downloadStartDate} onChange={(e) => setDownloadStartDate(e.target.value)} required />
           </label>
           <label>
             End Date
-            <input
-              type="date"
-              value={downloadEndDate}
-              onChange={(e) => setDownloadEndDate(e.target.value)}
-              required
-            />
+            <input type="date" value={downloadEndDate} onChange={(e) => setDownloadEndDate(e.target.value)} required />
           </label>
-          <button type="submit" className="primary" disabled={!markets.length || !canDownload}>
+          <button type="submit" className="primary" disabled={!markets.length || !canDownload || !inviteUnlocked}>
             Download CSV
           </button>
         </form>
       </section>
-    </div>
+    </>
   );
 }

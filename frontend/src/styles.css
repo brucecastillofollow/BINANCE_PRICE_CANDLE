@@ -146,7 +146,59 @@ button:hover {
   font-size: 13px;
 }
 
-.message {
+.message.error {
+  color: #b91c1c;
+}
+
+.auth-card .auth-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.stack-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.project-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+}
+
+.badge.ok {
+  color: #15803d;
+  border-color: #86efac;
+}
+
+.badge.warn {
+  color: #b45309;
+  border-color: #fcd34d;
+}
+
+.invite-link {
+  word-break: break-all;
+}
   color: #1e3a8a;
   background: #dbeafe;
   border: 1px solid #bfdbfe;

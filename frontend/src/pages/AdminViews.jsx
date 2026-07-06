@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { API_BASE, adminHeaders, toMs } from "../api.js";
+import { handleFormEnterKeyDown } from "../lib/formEnter.js";
 import SiteBrand from "../components/SiteBrand.jsx";
 
 function formatTs(ts) {
@@ -262,7 +263,7 @@ export default function AdminViews() {
 
       <section className="card">
         <h2>Add Market</h2>
-        <form onSubmit={createMarket} className="row-form">
+        <form onSubmit={createMarket} onKeyDown={handleFormEnterKeyDown} className="row-form">
           <label>
             Market Name
             <input
@@ -299,7 +300,7 @@ export default function AdminViews() {
 
       <section className="card">
         <h2>Download CSV</h2>
-        <form onSubmit={downloadCsv} className="row-form">
+        <form onSubmit={downloadCsv} onKeyDown={handleFormEnterKeyDown} className="row-form">
           <label>
             Market
             <select
@@ -340,7 +341,7 @@ export default function AdminViews() {
 
       <section className="card">
         <h2>Markets</h2>
-        <form onSubmit={applySearch} className="row-form">
+        <form onSubmit={applySearch} onKeyDown={handleFormEnterKeyDown} className="row-form">
           <label>
             Filter by Market Name
             <input
