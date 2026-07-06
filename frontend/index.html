@@ -6,6 +6,12 @@
     <title>Weien Wong | Crypto Market Data</title>
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <link rel="apple-touch-icon" href="/logo.svg" />
+    <script>
+      try {
+        const savedTheme = localStorage.getItem("binance_candle_theme");
+        document.documentElement.dataset.theme = savedTheme === "day" ? "day" : "night";
+      } catch {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

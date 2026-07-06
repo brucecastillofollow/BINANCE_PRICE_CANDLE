@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { handleFormEnterKeyDown } from "../lib/formEnter.js";
 import { AuthProvider, useAuth } from "../auth/AuthContext.jsx";
 import SiteBrand from "../components/SiteBrand.jsx";
+import ThemeToggle from "../components/ThemeToggle.jsx";
 
 function InviteAcceptInner() {
   const { token } = useParams();
@@ -37,7 +38,7 @@ function InviteAcceptInner() {
   return (
     <div className="app">
       <header className="page-header">
-        <SiteBrand title="Accept invitation" />
+        <SiteBrand title="Accept invitation" action={<ThemeToggle />} />
       </header>
       <section className="card auth-card">
         <p className="meta">Invited as <strong>{email}</strong></p>

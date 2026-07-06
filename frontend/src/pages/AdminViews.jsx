@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { API_BASE, adminHeaders, toMs } from "../api.js";
 import { handleFormEnterKeyDown } from "../lib/formEnter.js";
 import SiteBrand from "../components/SiteBrand.jsx";
+import ThemeToggle from "../components/ThemeToggle.jsx";
 
 function formatTs(ts) {
   if (ts === null || ts === undefined) {
@@ -253,9 +254,12 @@ export default function AdminViews() {
           title="Binance Price Candle Manager"
           subtitle="Manage market sync and export candle data."
           action={
-            <Link to="/" className="nav-link">
-              Dashboard
-            </Link>
+            <>
+              <ThemeToggle />
+              <Link to="/" className="nav-link">
+                Dashboard
+              </Link>
+            </>
           }
         />
       </header>

@@ -3,6 +3,7 @@ import { Outlet } from "react-router-dom";
 import { AuthProvider, useAuth } from "../auth/AuthContext.jsx";
 import { handleFormEnterKeyDown } from "../lib/formEnter.js";
 import SiteBrand from "../components/SiteBrand.jsx";
+import ThemeToggle from "../components/ThemeToggle.jsx";
 
 function AuthGate() {
   const { token, user, refreshUser, login, register, logout, sendInvite } = useAuth();
@@ -53,7 +54,7 @@ function AuthGate() {
     return (
       <div className="app">
         <header className="page-header">
-          <SiteBrand title="Binance Candle Data" />
+          <SiteBrand title="Binance Candle Data" action={<ThemeToggle />} />
         </header>
         <section className="card auth-card">
           <h2>{mode === "login" ? "Sign in" : "Create account"}</h2>
@@ -89,6 +90,7 @@ function AuthGate() {
       <header className="page-header project-header">
         <SiteBrand title="Binance Candle Data" subtitle={user.email} />
         <div className="header-actions">
+          <ThemeToggle />
           {user.can_download ? (
             <span className="badge ok">Downloads unlocked</span>
           ) : (

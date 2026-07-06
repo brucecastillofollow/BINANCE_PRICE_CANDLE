@@ -1,28 +1,41 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createChart, CandlestickSeries } from "lightweight-charts";
+import { CHART_THEMES, getStoredTheme } from "../lib/theme.js";
 
 export default function OhlcChart({ candles, marketLabel }) {
   const containerRef = useRef(null);
   const chartRef = useRef(null);
+  const [theme, setTheme] = useState(() => getStoredTheme());
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const observer = new MutationObserver(() => {
+      const next = root.dataset.theme === "day" ? "day" : "night";
+      setTheme(next);
+    });
+    observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!containerRef.current) {
       return undefined;
     }
 
+    const colors = CHART_THEMES[theme] ?? CHART_THEMES.night;
     const chart = createChart(containerRef.current, {
       width: containerRef.current.clientWidth,
       height: 360,
       layout: {
-        background: { color: "#ffffff" },
-        textColor: "#334155",
+        background: { color: colors.background },
+        textColor: colors.textColor,
       },
       grid: {
-        vertLines: { color: "#e2e8f0" },
-        horzLines: { color: "#e2e8f0" },
+        vertLines: { color: colors.grid },
+        horzLines: { color: colors.grid },
       },
-      rightPriceScale: { borderColor: "#cbd5e1" },
-      timeScale: { borderColor: "#cbd5e1" },
+      rightPriceScale: { borderColor: colors.border },
+      timeScale: { borderColor: colors.border },
     });
 
     const series = chart.addSeries(CandlestickSeries, {
@@ -47,7 +60,7 @@ export default function OhlcChart({ candles, marketLabel }) {
       chart.remove();
       chartRef.current = null;
     };
-  }, []);
+  }, [theme]);
 
   useEffect(() => {
     if (!chartRef.current?.series) {
