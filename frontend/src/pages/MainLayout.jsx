@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Outlet } from "react-router-dom";
 import { AuthProvider, useAuth } from "../auth/AuthContext.jsx";
 import { handleFormEnterKeyDown } from "../lib/formEnter.js";
@@ -6,35 +6,11 @@ import SiteBrand from "../components/SiteBrand.jsx";
 import ThemeToggle from "../components/ThemeToggle.jsx";
 
 function AuthGate() {
-  const { token, user, refreshUser, login, register, logout, sendInvite } = useAuth();
-  const [mode, setMode] = useState("login");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const { user, refreshUser, logout, sendInvite, hubAuthUrl, booting } = useAuth();
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteLink, setInviteLink] = useState("");
   const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(Boolean(token));
-
-  useEffect(() => {
-    if (!token) {
-      setLoading(false);
-      return;
-    }
-    refreshUser()
-      .catch(() => logout())
-      .finally(() => setLoading(false));
-  }, [token, refreshUser, logout]);
-
-  async function handleAuthSubmit(event) {
-    event.preventDefault();
-    setMessage("");
-    try {
-      if (mode === "login") await login(email, password);
-      else await register(email, password);
-    } catch (error) {
-      setMessage(error.message);
-    }
-  }
+  const [authTab, setAuthTab] = useState("signin");
 
   async function handleInvite(event) {
     event.preventDefault();
@@ -48,38 +24,72 @@ function AuthGate() {
     }
   }
 
-  if (loading) return <p className="message">Loading...</p>;
+  if (booting) return <p className="message">Loading...</p>;
 
-  if (!token || !user) {
+  if (!user) {
+    const returnTo = encodeURIComponent(window.location.href);
     return (
       <div className="app">
         <header className="page-header">
           <SiteBrand title="Binance Candle Data" action={<ThemeToggle />} />
         </header>
         <section className="card auth-card">
-          <h2>{mode === "login" ? "Sign in" : "Create account"}</h2>
-          <div className="auth-tabs">
-            <button type="button" className={mode === "login" ? "primary" : ""} onClick={() => setMode("login")}>
-              Login
+          <div className="auth-tabs" role="tablist">
+            <button
+              type="button"
+              className={authTab === "signin" ? "auth-tab active" : "auth-tab"}
+              role="tab"
+              aria-selected={authTab === "signin"}
+              onClick={() => setAuthTab("signin")}
+            >
+              Sign in
             </button>
-            <button type="button" className={mode === "register" ? "primary" : ""} onClick={() => setMode("register")}>
-              Register
+            <button
+              type="button"
+              className={authTab === "about" ? "auth-tab active" : "auth-tab"}
+              role="tab"
+              aria-selected={authTab === "about"}
+              onClick={() => setAuthTab("about")}
+            >
+              About
             </button>
           </div>
-          <form onSubmit={handleAuthSubmit} onKeyDown={handleFormEnterKeyDown} className="stack-form">
-            <label>
-              Email
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-            </label>
-            <label>
-              Password
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} minLength={8} required />
-            </label>
-            <button type="submit" className="primary">
-              {mode === "login" ? "Login" : "Register"}
-            </button>
-          </form>
-          {message ? <p className="message error">{message}</p> : null}
+
+          {authTab === "signin" ? (
+            <div className="auth-panel">
+              <h2>Sign in required</h2>
+              <p className="meta">Use your Weien Wong hub account to access Binance Candle Data.</p>
+              <button
+                type="button"
+                className="primary"
+                style={{ width: "100%", marginTop: 12 }}
+                onClick={() => {
+                  window.location.href = `${hubAuthUrl}/login?return_to=${returnTo}`;
+                }}
+              >
+                Sign in at Weien Wong Hub
+              </button>
+              <p className="meta" style={{ marginTop: 12 }}>
+                No account?{" "}
+                <a href={`${hubAuthUrl}/register?return_to=${returnTo}`}>Create one at the hub</a>
+              </p>
+            </div>
+          ) : (
+            <div className="auth-panel auth-about">
+              <h2>What this platform does</h2>
+              <p className="meta">
+                Explore Binance spot markets and inspect historical OHLC candle data for any
+                pair and interval. Chart a date range in the browser, then export CSV once downloads
+                are unlocked.
+              </p>
+              <p className="about-look-label">What it looks like</p>
+              <ul className="about-preview">
+                <li>Pick a market and interval from a searchable list</li>
+                <li>Interactive candle chart for the dates you choose</li>
+                <li>CSV download for offline analysis (unlock with one invite)</li>
+              </ul>
+            </div>
+          )}
         </section>
       </div>
     );
