@@ -215,34 +215,8 @@ button:hover {
   color: #f85149;
 }
 
-.auth-card .auth-tabs {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.auth-card .auth-tab {
-  flex: 1;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--badge-bg);
-  color: var(--muted);
-  font: inherit;
-  cursor: pointer;
-}
-
-.auth-card .auth-tab.active {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
-}
-
-.auth-card .auth-about h2 {
-  margin-top: 0;
-}
-
-.auth-card .about-look-label {
+.auth-card .about-look-label,
+.auth-about-card .about-look-label {
   margin: 14px 0 6px;
   font-size: 12px;
   font-weight: 600;
@@ -251,7 +225,8 @@ button:hover {
   color: var(--muted);
 }
 
-.auth-card .about-preview {
+.auth-card .about-preview,
+.auth-about-card .about-preview {
   margin: 0;
   padding-left: 1.15rem;
   color: var(--muted);
@@ -259,8 +234,17 @@ button:hover {
   line-height: 1.55;
 }
 
-.auth-card .about-preview li + li {
+.auth-card .about-preview li + li,
+.auth-about-card .about-preview li + li {
   margin-top: 4px;
+}
+
+.auth-about-card {
+  margin-top: 16px;
+}
+
+.auth-about-card h2 {
+  margin-top: 0;
 }
 
 .stack-form label {

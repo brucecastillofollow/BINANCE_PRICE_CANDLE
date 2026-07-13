@@ -10,7 +10,6 @@ function AuthGate() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteLink, setInviteLink] = useState("");
   const [message, setMessage] = useState("");
-  const [authTab, setAuthTab] = useState("signin");
 
   async function handleInvite(event) {
     event.preventDefault();
@@ -34,62 +33,36 @@ function AuthGate() {
           <SiteBrand title="Binance Candle Data" action={<ThemeToggle />} />
         </header>
         <section className="card auth-card">
-          <div className="auth-tabs" role="tablist">
-            <button
-              type="button"
-              className={authTab === "signin" ? "auth-tab active" : "auth-tab"}
-              role="tab"
-              aria-selected={authTab === "signin"}
-              onClick={() => setAuthTab("signin")}
-            >
-              Sign in
-            </button>
-            <button
-              type="button"
-              className={authTab === "about" ? "auth-tab active" : "auth-tab"}
-              role="tab"
-              aria-selected={authTab === "about"}
-              onClick={() => setAuthTab("about")}
-            >
-              About
-            </button>
-          </div>
-
-          {authTab === "signin" ? (
-            <div className="auth-panel">
-              <h2>Sign in required</h2>
-              <p className="meta">Use your Weien Wong hub account to access Binance Candle Data.</p>
-              <button
-                type="button"
-                className="primary"
-                style={{ width: "100%", marginTop: 12 }}
-                onClick={() => {
-                  window.location.href = `${hubAuthUrl}/login?return_to=${returnTo}`;
-                }}
-              >
-                Sign in at Weien Wong Hub
-              </button>
-              <p className="meta" style={{ marginTop: 12 }}>
-                No account?{" "}
-                <a href={`${hubAuthUrl}/register?return_to=${returnTo}`}>Create one at the hub</a>
-              </p>
-            </div>
-          ) : (
-            <div className="auth-panel auth-about">
-              <h2>What this platform does</h2>
-              <p className="meta">
-                Explore Binance spot markets and inspect historical OHLC candle data for any
-                pair and interval. Chart a date range in the browser, then export CSV once downloads
-                are unlocked.
-              </p>
-              <p className="about-look-label">What it looks like</p>
-              <ul className="about-preview">
-                <li>Pick a market and interval from a searchable list</li>
-                <li>Interactive candle chart for the dates you choose</li>
-                <li>CSV download for offline analysis (unlock with one invite)</li>
-              </ul>
-            </div>
-          )}
+          <h2>Sign in required</h2>
+          <p className="meta">Use your Weien Wong hub account to access Binance Candle Data.</p>
+          <button
+            type="button"
+            className="primary"
+            style={{ width: "100%", marginTop: 12 }}
+            onClick={() => {
+              window.location.href = `${hubAuthUrl}/login?return_to=${returnTo}`;
+            }}
+          >
+            Sign in at Weien Wong Hub
+          </button>
+          <p className="meta" style={{ marginTop: 12 }}>
+            No account?{" "}
+            <a href={`${hubAuthUrl}/register?return_to=${returnTo}`}>Create one at the hub</a>
+          </p>
+        </section>
+        <section className="card auth-about-card">
+          <h2>What this platform does</h2>
+          <p className="meta">
+            Explore Binance spot markets and inspect historical OHLC candle data for any
+            pair and interval. Chart a date range in the browser, then export CSV once downloads
+            are unlocked.
+          </p>
+          <p className="about-look-label">What it looks like</p>
+          <ul className="about-preview">
+            <li>Pick a market and interval from a searchable list</li>
+            <li>Interactive candle chart for the dates you choose</li>
+            <li>CSV download for offline analysis (unlock with one invite)</li>
+          </ul>
         </section>
       </div>
     );
