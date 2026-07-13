@@ -5,66 +5,34 @@ import {
   addProjectMember,
   countAcceptedInvitesSent,
   createInvite,
-  createUser,
   ensureDefaultProject,
+  ensureUserFromIdentity,
   getDefaultProject,
   getInviteByToken,
-  getUserByEmail,
   userPayload,
 } from "../auth/store.js";
 import {
-  createToken,
   decodeToken,
   generateInviteToken,
   getBearerToken,
-  hashPassword,
-  verifyPassword,
+  hubLoginUrl,
 } from "../auth/utils.js";
 
 export function createAuthRouter() {
   const router = Router();
 
-  router.post("/register", async (req, res, next) => {
-    try {
-      const { email, password } = req.body;
-      if (!email || !password || password.length < 8) {
-        return res.status(400).json({ message: "Email and password (8+ chars) required" });
-      }
-
-      const existing = await getUserByEmail(email);
-      if (existing) {
-        return res.status(400).json({ message: "Email already registered; please login" });
-      }
-
-      const project = await ensureDefaultProject();
-      const user = await createUser(email, hashPassword(password));
-      await addProjectMember(project.id, user.id, "member");
-
-      const token = createToken({ userId: user.id, projectId: project.id, email: user.email });
-      res.json({ token, user: userPayload(user, 0) });
-    } catch (error) {
-      next(error);
-    }
+  router.post("/register", (_req, res) => {
+    res.status(401).json({
+      message: "Register at the Weien Wong hub",
+      redirect: `${config.hubAuthUrl}/register`,
+    });
   });
 
-  router.post("/login", async (req, res, next) => {
-    try {
-      const { email, password } = req.body;
-      const project = await ensureDefaultProject();
-
-      const user = await getUserByEmail(email);
-      if (!user || !verifyPassword(password, user.password_hash)) {
-        return res.status(401).json({ message: "Invalid email or password" });
-      }
-
-      await addProjectMember(project.id, user.id, "member");
-
-      const invitesSent = await countAcceptedInvitesSent(user.id, project.id);
-      const token = createToken({ userId: user.id, projectId: project.id, email: user.email });
-      res.json({ token, user: userPayload(user, invitesSent) });
-    } catch (error) {
-      next(error);
-    }
+  router.post("/login", (_req, res) => {
+    res.status(401).json({
+      message: "Sign in at the Weien Wong hub",
+      redirect: hubLoginUrl(),
+    });
   });
 
   router.get("/me", requireAuth, async (req, res) => {
@@ -100,6 +68,7 @@ export function createAuthRouter() {
         email: invite.email,
         accepted: Boolean(invite.accepted_at),
         expired: new Date(invite.expires_at) < new Date(),
+        hub_auth_url: config.hubAuthUrl,
       });
     } catch (error) {
       next(error);
@@ -108,7 +77,6 @@ export function createAuthRouter() {
 
   router.post("/invites/:token/accept", async (req, res, next) => {
     try {
-      const { password } = req.body;
       const invite = await getInviteByToken(req.params.token);
       if (!invite) return res.status(404).json({ message: "Invite not found" });
 
@@ -117,14 +85,18 @@ export function createAuthRouter() {
         return res.status(404).json({ message: "Invite not found" });
       }
 
-      let user = await getUserByEmail(invite.email);
-      if (!user) {
-        if (!password || password.length < 8) {
-          return res.status(400).json({ message: "Password required to create account" });
-        }
-        user = await createUser(invite.email, hashPassword(password));
-      } else if (password && !verifyPassword(password, user.password_hash)) {
-        return res.status(401).json({ message: "Invalid password" });
+      const token = getBearerToken(req);
+      if (!token) {
+        return res.status(401).json({
+          message: "Sign in at the hub before accepting this invite",
+          redirect: hubLoginUrl(`${config.appBaseUrl}/invite/${req.params.token}`),
+        });
+      }
+
+      const identity = decodeToken(token);
+      const user = await ensureUserFromIdentity(String(identity.sub), String(identity.email || invite.email));
+      if (invite.email.toLowerCase() !== String(user.email).toLowerCase()) {
+        return res.status(403).json({ message: "Signed-in hub account does not match invite email" });
       }
 
       if (!invite.accepted_at) {
@@ -135,8 +107,7 @@ export function createAuthRouter() {
       }
 
       const invitesSent = await countAcceptedInvitesSent(user.id, project.id);
-      const token = createToken({ userId: user.id, projectId: project.id, email: user.email });
-      res.json({ token, user: userPayload(user, invitesSent) });
+      res.json({ user: userPayload(user, invitesSent) });
     } catch (error) {
       next(error);
     }
@@ -149,22 +120,34 @@ export function requireAuth(req, res, next) {
   (async () => {
     try {
       const token = getBearerToken(req);
-      if (!token) return res.status(401).json({ message: "Authentication required" });
+      if (!token) {
+        return res.status(401).json({
+          message: "Authentication required",
+          redirect: hubLoginUrl(config.appBaseUrl),
+        });
+      }
 
       const payload = decodeToken(token);
-      const project = await getDefaultProject();
-      if (payload.project_id !== project.id) {
+      const project = await ensureDefaultProject();
+
+      if (payload.project_id && payload.project_id !== project.id) {
         return res.status(401).json({ message: "Invalid or expired token" });
       }
 
+      const user = await ensureUserFromIdentity(String(payload.sub), String(payload.email || ""));
+      await addProjectMember(project.id, user.id, "member");
+
       req.auth = {
-        userId: payload.sub,
-        email: payload.email,
+        userId: user.id,
+        email: user.email,
         projectId: project.id,
       };
       next();
     } catch {
-      res.status(401).json({ message: "Invalid or expired token" });
+      res.status(401).json({
+        message: "Invalid or expired token",
+        redirect: hubLoginUrl(config.appBaseUrl),
+      });
     }
   })();
 }

@@ -1,3 +1,4 @@
+import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
 import fs from "fs";
@@ -12,12 +13,24 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const frontendDist = path.resolve(__dirname, "../../frontend/dist");
 
+function corsOrigin() {
+  const configured = config.corsOrigin;
+  if (!configured || configured === "true") return true;
+  return configured.split(",").map((part) => part.trim()).filter(Boolean);
+}
+
 export function createApp() {
   const app = express();
   if (config.trustProxy) {
     app.set("trust proxy", 1);
   }
-  app.use(cors({ origin: config.corsOrigin }));
+  app.use(
+    cors({
+      origin: corsOrigin(),
+      credentials: true,
+    })
+  );
+  app.use(cookieParser());
   app.use(express.json());
 
   app.get("/health", (_req, res) => {

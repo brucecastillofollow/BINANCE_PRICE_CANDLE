@@ -50,6 +50,25 @@ export async function getUserByEmail(email) {
   return rows[0] ?? null;
 }
 
+export async function getUserById(userId) {
+  const { rows } = await pool.query("SELECT id, email, created_at FROM users WHERE id = $1", [userId]);
+  return rows[0] ?? null;
+}
+
+export async function ensureUserFromIdentity(userId, email) {
+  const hubOnlyHash = "$2b$10$hub.identity.only.account.placeholder.hashxx";
+  let user = await getUserById(userId);
+  if (user) return user;
+  const byEmail = email ? await getUserByEmail(email) : null;
+  if (byEmail) return byEmail;
+  const { rows } = await pool.query(
+    `INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)
+     RETURNING id, email, created_at`,
+    [userId, String(email || "").toLowerCase(), hubOnlyHash]
+  );
+  return rows[0];
+}
+
 export async function createUser(email, passwordHash) {
   const { rows } = await pool.query(
     `INSERT INTO users (id, email, password_hash) VALUES (gen_random_uuid(), $1, $2)

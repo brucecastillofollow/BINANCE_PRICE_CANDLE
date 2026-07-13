@@ -1,7 +1,9 @@
 export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
 
 export function authHeaders(token) {
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  // Hub SSO uses the HttpOnly ww_access_token cookie. Do not send a fake Bearer.
+  if (!token || token === "cookie") return {};
+  return { Authorization: `Bearer ${token}` };
 }
 
 export function adminHeaders() {

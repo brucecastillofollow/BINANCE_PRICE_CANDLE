@@ -1,21 +1,14 @@
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { API_BASE } from "../api.js";
 
 const AuthContext = createContext(null);
-
-const TOKEN_KEY = "binance_candle_token";
+const HUB_AUTH_URL = "https://weienwong.online";
 
 export function AuthProvider({ children }) {
-  const [token, setTokenState] = useState(() => localStorage.getItem(TOKEN_KEY) || "");
   const [user, setUser] = useState(null);
+  const [booting, setBooting] = useState(true);
 
   const apiBase = API_BASE || "";
-
-  const setToken = useCallback((value) => {
-    if (value) localStorage.setItem(TOKEN_KEY, value);
-    else localStorage.removeItem(TOKEN_KEY);
-    setTokenState(value || "");
-  }, []);
 
   const authFetch = useCallback(
     async (path, options = {}) => {
@@ -25,71 +18,72 @@ export function AuthProvider({ children }) {
         options.body = JSON.stringify(options.json);
         delete options.json;
       }
-      if (token) headers.Authorization = `Bearer ${token}`;
-      const res = await fetch(`${apiBase}${path}`, { ...options, headers });
+      const res = await fetch(`${apiBase}${path}`, {
+        ...options,
+        headers,
+        credentials: "include",
+      });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.message || data.detail || res.statusText);
+      if (!res.ok) {
+        const isSessionProbe = path === "/auth/me";
+        if (data.redirect && !isSessionProbe) {
+          window.location.href = data.redirect.includes("return_to=")
+            ? data.redirect
+            : `${data.redirect}${data.redirect.includes("?") ? "&" : "?"}return_to=${encodeURIComponent(window.location.href)}`;
+          throw new Error("Redirecting to hub sign in…");
+        }
+        throw new Error(data.message || data.detail || res.statusText);
+      }
       return data;
     },
-    [apiBase, token]
+    [apiBase]
   );
-
-  const login = useCallback(
-    async (email, password) => {
-      const data = await authFetch("/auth/login", { method: "POST", json: { email, password } });
-      setToken(data.token);
-      setUser(data.user);
-      return data.user;
-    },
-    [authFetch, setToken]
-  );
-
-  const register = useCallback(
-    async (email, password) => {
-      const data = await authFetch("/auth/register", {
-        method: "POST",
-        json: { email, password },
-      });
-      setToken(data.token);
-      setUser(data.user);
-      return data.user;
-    },
-    [authFetch, setToken]
-  );
-
-  const logout = useCallback(() => {
-    setToken("");
-    setUser(null);
-  }, [setToken]);
 
   const refreshUser = useCallback(async () => {
-    if (!token) return null;
     const data = await authFetch("/auth/me");
     setUser(data);
     return data;
-  }, [authFetch, token]);
+  }, [authFetch]);
+
+  const logout = useCallback(async () => {
+    try {
+      await fetch(`${HUB_AUTH_URL}/api/identity/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (_) {
+      /* ignore */
+    }
+    setUser(null);
+  }, []);
 
   const sendInvite = useCallback(
     async (email) => authFetch("/auth/invites", { method: "POST", json: { email } }),
     [authFetch]
   );
 
+  useEffect(() => {
+    refreshUser()
+      .catch(() => setUser(null))
+      .finally(() => setBooting(false));
+  }, [refreshUser]);
+
   const value = useMemo(
     () => ({
       apiBase,
-      token,
+      hubAuthUrl: HUB_AUTH_URL,
+      // Empty token → rely on credentials: "include" + hub cookie.
+      token: "",
       user,
-      setToken,
       setUser,
-      login,
-      register,
       logout,
       refreshUser,
       sendInvite,
       authFetch,
-      isAuthenticated: Boolean(token),
+      booting,
+      isAuthenticated: Boolean(user),
     }),
-    [apiBase, token, user, setToken, login, register, logout, refreshUser, sendInvite, authFetch]
+    [apiBase, user, logout, refreshUser, sendInvite, authFetch, booting]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

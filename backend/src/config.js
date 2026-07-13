@@ -24,9 +24,15 @@ export const config = {
   dailySyncHourUtc: Number(process.env.DAILY_SYNC_HOUR_UTC ?? 1),
   corsOrigin:
     process.env.CORS_ORIGIN ??
-    `http://localhost:${Number(process.env.FRONTEND_PORT ?? 5173)}`,
+    [
+      process.env.APP_BASE_URL,
+      `http://localhost:${Number(process.env.FRONTEND_PORT ?? 5173)}`,
+      "https://cryptodataset.weienwong.online",
+    ]
+      .filter(Boolean)
+      .join(","),
   adminApiKey: process.env.ADMIN_API_KEY ?? "",
-  trustProxy: process.env.TRUST_PROXY === "1",
+  trustProxy: process.env.TRUST_PROXY !== "0",
   jwtSecret: process.env.JWT_SECRET ?? "change-me-in-production-binance",
   authJwtSecret: process.env.AUTH_JWT_SECRET ?? process.env.JWT_SECRET ?? "change-me-in-production-binance",
   authCookieName: process.env.AUTH_COOKIE_NAME ?? "ww_access_token",

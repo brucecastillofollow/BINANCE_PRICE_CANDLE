@@ -31,8 +31,8 @@ export default function Dashboard() {
     try {
       const headers = authHeaders(token);
       const [marketRes, statusRes] = await Promise.all([
-        fetch(`${base}?page=1&pageSize=1000`, { headers }),
-        fetch(`${base}/download-status`, { headers }),
+        fetch(`${base}?page=1&pageSize=1000`, { headers, credentials: "include" }),
+        fetch(`${base}/download-status`, { headers, credentials: "include" }),
       ]);
       const marketData = await marketRes.json();
       const statusData = await statusRes.json();
@@ -68,6 +68,7 @@ export default function Dashboard() {
     try {
       const response = await fetch(`${base}/candles`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json", ...authHeaders(token) },
         body: JSON.stringify({
           market: market.name,
@@ -94,8 +95,8 @@ export default function Dashboard() {
   }
 
   useEffect(() => {
-    if (token) void loadMarkets();
-  }, [token]);
+    if (user) void loadMarkets();
+  }, [user]);
 
   useEffect(() => {
     if (selectedMarket) {
@@ -123,7 +124,7 @@ export default function Dashboard() {
     const url = `${base}/download?market=${encodeURIComponent(selectedMarket.name)}&interval=${encodeURIComponent(selectedMarket.interval)}&start=${start}&end=${end}`;
 
     try {
-      const response = await fetch(url, { headers: authHeaders(token) });
+      const response = await fetch(url, { headers: authHeaders(token), credentials: "include" });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
         setMessage(body.message ?? "Download failed");
