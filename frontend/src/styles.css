@@ -455,7 +455,8 @@ select:disabled {
 
 .chart-canvas {
   width: 100%;
-  min-height: 360px;
+  height: clamp(220px, 45vh, 360px);
+  min-height: 220px;
 }
 
 .download-note {
@@ -495,6 +496,10 @@ a {
     padding: 1rem 0.75rem 2rem;
   }
 
+  .card {
+    box-shadow: 0 2px 8px var(--shadow);
+  }
+
   .row-form label,
   .market-row label {
     min-width: 100%;
@@ -531,12 +536,18 @@ a {
     white-space: normal;
   }
 
-  .chart-canvas {
-    min-height: 260px;
+  .header-actions {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 0.5rem;
   }
 
-  .topbar-actions,
-  .header-actions {
-    gap: 0.5rem;
+  .header-actions .badge.warn,
+  .header-actions .badge.ok {
+    flex-basis: 100%;
+  }
+
+  .chart-canvas {
+    height: clamp(220px, 45vh, 300px);
   }
 }

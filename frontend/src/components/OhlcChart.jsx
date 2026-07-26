@@ -23,9 +23,11 @@ export default function OhlcChart({ candles, marketLabel }) {
     }
 
     const colors = CHART_THEMES[theme] ?? CHART_THEMES.night;
-    const chart = createChart(containerRef.current, {
-      width: containerRef.current.clientWidth,
-      height: 360,
+    const el = containerRef.current;
+    const chartHeight = () => Math.round(el.clientHeight) || 280;
+    const chart = createChart(el, {
+      width: el.clientWidth,
+      height: chartHeight(),
       layout: {
         background: { color: colors.background },
         textColor: colors.textColor,
@@ -50,7 +52,10 @@ export default function OhlcChart({ candles, marketLabel }) {
 
     const onResize = () => {
       if (containerRef.current) {
-        chart.applyOptions({ width: containerRef.current.clientWidth });
+        chart.applyOptions({
+          width: containerRef.current.clientWidth,
+          height: Math.round(containerRef.current.clientHeight) || 280,
+        });
       }
     };
     window.addEventListener("resize", onResize);
