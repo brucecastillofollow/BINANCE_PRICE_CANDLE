@@ -29,8 +29,14 @@ function AuthGate() {
     const returnTo = encodeURIComponent(window.location.href);
     return (
       <div className="app">
-        <header className="page-header">
-          <SiteBrand title="Binance Candle Data" action={<ThemeToggle />} />
+        <header className="page-header project-header">
+          <SiteBrand title="Binance Candle Data" />
+          <div className="header-actions">
+            <a className="secondary" href="https://weienwong.online/" title="Return to Weien Wong hub">
+              ← Hub
+            </a>
+            <ThemeToggle />
+          </div>
         </header>
         <section className="card auth-card">
           <h2>Sign in required</h2>
@@ -73,6 +79,9 @@ function AuthGate() {
       <header className="page-header project-header">
         <SiteBrand title="Binance Candle Data" subtitle={user.email} />
         <div className="header-actions">
+          <a className="secondary" href="https://weienwong.online/" title="Return to Weien Wong hub">
+            ← Hub
+          </a>
           <ThemeToggle />
           {user.can_download ? (
             <span className="badge ok">Downloads unlocked</span>

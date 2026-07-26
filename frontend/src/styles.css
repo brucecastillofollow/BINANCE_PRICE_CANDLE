@@ -198,6 +198,18 @@ button:hover {
   background: transparent;
   border: 1px solid var(--border);
   color: var(--text);
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 10px;
+  min-height: 40px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+a.secondary:hover {
+  filter: brightness(1.08);
 }
 
 .danger {
