@@ -1,12 +1,15 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { authHeaders, defaultChartRange, marketsBase, toMs } from "../api.js";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { handleFormEnterKeyDown } from "../lib/formEnter.js";
 import OhlcChart from "../components/OhlcChart.jsx";
 
+const CHART_REFRESH_MS = 10 * 60 * 1000;
+
 export default function Dashboard() {
-  const { token, user, refreshUser } = useAuth();
+  const { token, user } = useAuth();
   const base = marketsBase();
+  const userId = user?.id ?? user?.email ?? null;
 
   const [markets, setMarkets] = useState([]);
   const [selectedMarketId, setSelectedMarketId] = useState("");
@@ -14,6 +17,7 @@ export default function Dashboard() {
   const [chartEndDate, setChartEndDate] = useState(() => defaultChartRange(30).endDate);
   const [candles, setCandles] = useState([]);
   const [chartLoading, setChartLoading] = useState(false);
+  const hasCandlesRef = useRef(false);
 
   const [downloadStartDate, setDownloadStartDate] = useState("");
   const [downloadEndDate, setDownloadEndDate] = useState("");
@@ -26,7 +30,7 @@ export default function Dashboard() {
   const selectedMarket = markets.find((m) => String(m.id) === selectedMarketId);
   const inviteUnlocked = Boolean(user?.can_download);
 
-  async function loadMarkets() {
+  const loadMarkets = useCallback(async () => {
     setLoading(true);
     try {
       const headers = authHeaders(token);
@@ -39,70 +43,91 @@ export default function Dashboard() {
       const items = marketData.items ?? [];
       setMarkets(items);
       setCanDownload(Boolean(statusData.canDownload));
-      if (items.length && !selectedMarketId) {
-        setSelectedMarketId(String(items[0].id));
-      }
-      await refreshUser();
+      setSelectedMarketId((prev) => {
+        if (prev && items.some((m) => String(m.id) === prev)) return prev;
+        return items.length ? String(items[0].id) : "";
+      });
     } catch {
       setMessage("Failed to load markets. Is the backend running?");
     } finally {
       setLoading(false);
     }
-  }
+  }, [base, token]);
 
-  async function loadChart(market, startDate, endDate) {
-    if (!market || !startDate || !endDate) {
-      setCandles([]);
-      return;
-    }
-    const start = toMs(startDate);
-    const end = toMs(endDate) + 24 * 60 * 60 * 1000 - 1;
-    if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
-      setMessage("Chart end date must be on or after the start date.");
-      setCandles([]);
-      return;
-    }
-    setChartLoading(true);
-    setMessage("");
-    setChartTruncated(false);
-    try {
-      const response = await fetch(`${base}/candles`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json", ...authHeaders(token) },
-        body: JSON.stringify({
-          market: market.name,
-          interval: market.interval,
-          start_timestamp: start,
-          end_timestamp: end,
-          chart: true,
-        }),
-      });
-      const body = await response.json();
-      if (!response.ok) {
-        setMessage(body.message ?? "Failed to load chart data");
+  const loadChart = useCallback(
+    async (market, startDate, endDate, { silent = false } = {}) => {
+      if (!market || !startDate || !endDate) {
         setCandles([]);
+        hasCandlesRef.current = false;
         return;
       }
-      setCandles(body.combined ?? []);
-      setChartTruncated(Boolean(body.truncated));
-    } catch {
-      setMessage("Failed to load chart data");
-      setCandles([]);
-    } finally {
-      setChartLoading(false);
-    }
-  }
+      const start = toMs(startDate);
+      const end = toMs(endDate) + 24 * 60 * 60 * 1000 - 1;
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) {
+        setMessage("Chart end date must be on or after the start date.");
+        setCandles([]);
+        hasCandlesRef.current = false;
+        return;
+      }
+      const showLoading = !silent || !hasCandlesRef.current;
+      if (showLoading) setChartLoading(true);
+      if (!silent) {
+        setMessage("");
+        setChartTruncated(false);
+      }
+      try {
+        const response = await fetch(`${base}/candles`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json", ...authHeaders(token) },
+          body: JSON.stringify({
+            market: market.name,
+            interval: market.interval,
+            start_timestamp: start,
+            end_timestamp: end,
+            chart: true,
+          }),
+        });
+        const body = await response.json();
+        if (!response.ok) {
+          if (!silent) {
+            setMessage(body.message ?? "Failed to load chart data");
+            setCandles([]);
+            hasCandlesRef.current = false;
+          }
+          return;
+        }
+        const next = body.combined ?? [];
+        setCandles(next);
+        hasCandlesRef.current = next.length > 0;
+        setChartTruncated(Boolean(body.truncated));
+      } catch {
+        if (!silent) {
+          setMessage("Failed to load chart data");
+          setCandles([]);
+          hasCandlesRef.current = false;
+        }
+      } finally {
+        if (showLoading) setChartLoading(false);
+      }
+    },
+    [base, token]
+  );
 
   useEffect(() => {
-    if (user) void loadMarkets();
-  }, [user]);
+    if (userId) void loadMarkets();
+  }, [userId, loadMarkets]);
 
   useEffect(() => {
-    if (selectedMarket) {
-      void loadChart(selectedMarket, chartStartDate, chartEndDate);
-    }
-  }, [selectedMarketId, chartStartDate, chartEndDate, markets]);
+    if (!selectedMarket) return undefined;
+    // Force a visible load for market/range changes; keep current candles until new data arrives.
+    hasCandlesRef.current = false;
+    void loadChart(selectedMarket, chartStartDate, chartEndDate);
+    const timer = setInterval(() => {
+      void loadChart(selectedMarket, chartStartDate, chartEndDate, { silent: true });
+    }, CHART_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [selectedMarketId, selectedMarket?.name, selectedMarket?.interval, chartStartDate, chartEndDate, loadChart]);
 
   async function downloadCsv(event) {
     event.preventDefault();
@@ -185,11 +210,13 @@ export default function Dashboard() {
                 Refresh Chart
               </button>
             </form>
-            {chartLoading ? <p>Loading chart...</p> : null}
-            {chartTruncated ? <p className="meta">Showing the most recent 5,000 candles for this range.</p> : null}
+            <div className={`chart-status${chartLoading ? " is-loading" : ""}`} aria-live="polite">
+              {chartLoading ? "Loading chart…" : chartTruncated ? "Showing the most recent 5,000 candles for this range." : "\u00a0"}
+            </div>
             <OhlcChart
               candles={candles}
               marketLabel={selectedMarket ? `${selectedMarket.name} · ${selectedMarket.interval}` : ""}
+              resetViewKey={`${selectedMarketId}|${chartStartDate}|${chartEndDate}`}
             />
           </>
         ) : null}

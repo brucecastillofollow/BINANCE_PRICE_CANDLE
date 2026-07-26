@@ -432,8 +432,21 @@ select:disabled {
   filter: brightness(1.08);
 }
 
+.chart-status {
+  min-height: 1.35em;
+  margin: 10px 0 0;
+  font-size: 0.9rem;
+  color: var(--muted, var(--text-muted, #888));
+  opacity: 0.85;
+}
+
+.chart-status.is-loading {
+  color: var(--text);
+  opacity: 1;
+}
+
 .chart-wrap {
-  margin-top: 16px;
+  margin-top: 8px;
   border: 1px solid var(--border);
   border-radius: 12px;
   overflow: hidden;
