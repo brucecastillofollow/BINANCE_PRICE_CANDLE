@@ -12,8 +12,11 @@ import {
   userPayload,
 } from "../auth/store.js";
 import {
+  adminCookieOptions,
+  createAdminToken,
   decodeToken,
   generateInviteToken,
+  getAdminTokenFromRequest,
   getBearerToken,
   hubLoginUrl,
 } from "../auth/utils.js";
@@ -33,6 +36,35 @@ export function createAuthRouter() {
       message: "Sign in at the Weien Wong hub",
       redirect: hubLoginUrl(),
     });
+  });
+
+  router.post("/admin/login", (req, res) => {
+    const username = String(req.body?.username ?? "").trim();
+    const password = String(req.body?.password ?? "");
+    if (!config.adminPassword) {
+      return res.status(503).json({ message: "Admin login is not configured" });
+    }
+    const userOk = username === config.adminUsername;
+    const passOk = password === config.adminPassword;
+    if (!userOk || !passOk) {
+      return res.status(401).json({ message: "Invalid admin username or password" });
+    }
+    const token = createAdminToken(config.adminUsername);
+    res.cookie(config.adminCookieName, token, adminCookieOptions());
+    res.json({ ok: true, username: config.adminUsername });
+  });
+
+  router.get("/admin/me", (req, res) => {
+    const admin = getAdminTokenFromRequest(req);
+    if (!admin) {
+      return res.status(401).json({ message: "Admin authentication required" });
+    }
+    res.json({ ok: true, username: admin.username, via: admin.via });
+  });
+
+  router.post("/admin/logout", (req, res) => {
+    res.clearCookie(config.adminCookieName, { ...adminCookieOptions(), maxAge: 0 });
+    res.json({ ok: true });
   });
 
   router.get("/me", requireAuth, async (req, res) => {
@@ -152,7 +184,25 @@ export function requireAuth(req, res, next) {
   })();
 }
 
-export async function requireDownloadUnlock(req, res, next) {
+export function isAdminRequest(req) {
+  return Boolean(getAdminTokenFromRequest(req));
+}
+
+export function requireAdmin(req, res, next) {
+  const admin = getAdminTokenFromRequest(req);
+  if (!admin) {
+    return res.status(401).json({ message: "Admin authentication required" });
+  }
+  req.admin = admin;
+  next();
+}
+
+/** Hub-auth + invite for normal users; admin session/key skips those checks. */
+export function requireDownloadUnlock(req, res, next) {
+  if (isAdminRequest(req)) {
+    req.admin = getAdminTokenFromRequest(req);
+    return next();
+  }
   requireAuth(req, res, async () => {
     if (res.headersSent) return;
     try {

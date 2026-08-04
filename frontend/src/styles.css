@@ -133,11 +133,20 @@ body {
   box-shadow: 0 8px 20px var(--shadow);
 }
 
-.card h2 {
-  margin-top: 0;
-  margin-bottom: 14px;
-  color: var(--text);
+.admin-login-card {
+  max-width: 480px;
 }
+
+.admin-login-card .row-form {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.admin-login-card label {
+  min-width: 0;
+  width: 100%;
+}
+
 
 .row-form,
 .market-row {

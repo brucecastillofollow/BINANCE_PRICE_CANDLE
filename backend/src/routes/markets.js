@@ -1,7 +1,6 @@
 import express from "express";
-import { requireAuth, requireDownloadUnlock } from "./auth.js";
+import { isAdminRequest, requireAuth, requireAdmin, requireDownloadUnlock } from "./auth.js";
 import { pool } from "../db.js";
-import { config } from "../config.js";
 import { INTERVAL_OPTIONS } from "../constants.js";
 import { isValidMarketName, sanitizeCsvValue, toHistoricalTableName, toLiveTableName } from "../utils.js";
 import { enqueueMarketSync, getSyncQueueStatus } from "../services/syncQueue.js";
@@ -15,11 +14,6 @@ export const marketsRouter = express.Router({ mergeParams: true });
 
 const CHART_CANDLE_LIMIT = 5000;
 const CHART_SELECT = "open_time, open, high, low, close";
-
-function isAdminRequest(req) {
-  const key = req.headers["x-admin-key"];
-  return Boolean(config.adminApiKey && key && key === config.adminApiKey);
-}
 
 const LIST_SELECT = `
   id, name, interval, start_timestamp, last_timestamp, sync_status, sync_progress, sync_error,
@@ -203,7 +197,7 @@ marketsRouter.get("/", async (_req, res, next) => {
   }
 });
 
-marketsRouter.post("/", async (req, res, next) => {
+marketsRouter.post("/", requireAdmin, async (req, res, next) => {
   try {
     const { name, interval, start_timestamp: startTimestamp } = req.body;
     if (!isValidMarketName(name)) {
@@ -236,7 +230,7 @@ marketsRouter.post("/", async (req, res, next) => {
   }
 });
 
-marketsRouter.delete("/:id", async (req, res, next) => {
+marketsRouter.delete("/:id", requireAdmin, async (req, res, next) => {
   try {
     const { id } = req.params;
     const target = await pool.query("SELECT name, interval, live_enabled FROM markets WHERE id = $1", [
@@ -262,7 +256,7 @@ marketsRouter.delete("/:id", async (req, res, next) => {
   }
 });
 
-marketsRouter.post("/:id/sync", async (req, res, next) => {
+marketsRouter.post("/:id/sync", requireAdmin, async (req, res, next) => {
   try {
     const { id } = req.params;
     const marketResult = await pool.query("SELECT * FROM markets WHERE id = $1", [Number(id)]);
@@ -279,7 +273,7 @@ marketsRouter.post("/:id/sync", async (req, res, next) => {
   }
 });
 
-marketsRouter.post("/:id/live", async (req, res, next) => {
+marketsRouter.post("/:id/live", requireAdmin, async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) {
@@ -311,7 +305,7 @@ marketsRouter.get("/live-status", (_req, res) => {
 });
 
 /** Gap check: expected open_time grid (default step from market interval; override with ?stepMs=60000). */
-marketsRouter.get("/:id/data-check", async (req, res, next) => {
+marketsRouter.get("/:id/data-check", requireAdmin, async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) {

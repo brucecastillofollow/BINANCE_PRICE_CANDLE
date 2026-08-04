@@ -32,6 +32,11 @@ export const config = {
       .filter(Boolean)
       .join(","),
   adminApiKey: process.env.ADMIN_API_KEY ?? "",
+  adminUsername: process.env.ADMIN_USERNAME ?? "admin",
+  adminPassword: process.env.ADMIN_PASSWORD ?? process.env.ADMIN_API_KEY ?? "",
+  adminCookieName: process.env.ADMIN_COOKIE_NAME ?? "binance_admin_session",
+  /** Hours until admin cookie expires (default 12) */
+  adminSessionHours: Number(process.env.ADMIN_SESSION_HOURS ?? 12),
   trustProxy: process.env.TRUST_PROXY !== "0",
   jwtSecret: process.env.JWT_SECRET ?? "change-me-in-production-binance",
   authJwtSecret: process.env.AUTH_JWT_SECRET ?? process.env.JWT_SECRET ?? "change-me-in-production-binance",

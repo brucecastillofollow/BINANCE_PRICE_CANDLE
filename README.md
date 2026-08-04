@@ -71,6 +71,16 @@ npm run dev:frontend
 Ports come from `.env`: `FRONTEND_PORT` (Vite) and `BACKEND_PORT` (Express). Defaults are `5173` and `4000` if unset.
 Parallel market sync workers are controlled by `SYNC_WORKER_COUNT` (default `3`).
 
+## Admin panel (`/admin-views`)
+
+Market management (add/delete/sync/live) and unlimited CSV export require a separate
+admin username and password from `.env`:
+
+- `ADMIN_USERNAME` / `ADMIN_PASSWORD`
+
+Sign in at `/admin-views`. Session cookie lasts `ADMIN_SESSION_HOURS` (default 12).
+Hub/Gmail login alone does not open the admin panel.
+
 ## Notes
 
 - On backend startup, all existing markets are synced up to yesterday if needed.

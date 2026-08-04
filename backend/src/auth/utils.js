@@ -51,3 +51,50 @@ export function hubLoginUrl(returnTo = "") {
   if (!returnTo) return base;
   return `${base}?return_to=${encodeURIComponent(returnTo)}`;
 }
+
+export function createAdminToken(username) {
+  const hours = Math.max(1, Number(config.adminSessionHours) || 12);
+  return jwt.sign(
+    { role: "admin", sub: username },
+    config.jwtSecret,
+    { expiresIn: `${hours}h` }
+  );
+}
+
+export function decodeAdminToken(token) {
+  const payload = jwt.verify(token, config.jwtSecret);
+  if (payload?.role !== "admin") {
+    throw new Error("Not an admin token");
+  }
+  return payload;
+}
+
+export function getAdminTokenFromRequest(req) {
+  const headerKey = req.headers["x-admin-key"];
+  if (config.adminApiKey && headerKey && headerKey === config.adminApiKey) {
+    return { via: "api_key", username: "api-key" };
+  }
+  const cookieName = config.adminCookieName;
+  const token = req.cookies?.[cookieName];
+  if (!token) return null;
+  try {
+    const payload = decodeAdminToken(token);
+    return { via: "cookie", username: String(payload.sub || "admin"), token };
+  } catch {
+    return null;
+  }
+}
+
+export function adminCookieOptions() {
+  const hours = Math.max(1, Number(config.adminSessionHours) || 12);
+  const secure =
+    process.env.ADMIN_COOKIE_SECURE === "1" ||
+    String(config.appBaseUrl || "").startsWith("https://");
+  return {
+    httpOnly: true,
+    secure,
+    sameSite: "lax",
+    path: "/",
+    maxAge: hours * 60 * 60 * 1000,
+  };
+}

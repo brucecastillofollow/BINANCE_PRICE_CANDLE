@@ -6,11 +6,6 @@ export function authHeaders(token) {
   return { Authorization: `Bearer ${token}` };
 }
 
-export function adminHeaders() {
-  const key = import.meta.env.VITE_ADMIN_API_KEY;
-  return key ? { "X-Admin-Key": key } : {};
-}
-
 export function marketsBase() {
   const base = API_BASE || "";
   return `${base}/markets`;

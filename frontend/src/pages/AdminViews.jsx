@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { API_BASE, adminHeaders, toMs } from "../api.js";
+import { API_BASE, toMs } from "../api.js";
 import { handleFormEnterKeyDown } from "../lib/formEnter.js";
 import SiteBrand from "../components/SiteBrand.jsx";
 import ThemeToggle from "../components/ThemeToggle.jsx";
@@ -35,7 +35,16 @@ function formatMsAsIso(ms) {
   return d.toISOString();
 }
 
+const fetchOpts = { credentials: "include" };
+
 export default function AdminViews() {
+  const [admin, setAdmin] = useState(null);
+  const [authChecking, setAuthChecking] = useState(true);
+  const [loginUsername, setLoginUsername] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [loginBusy, setLoginBusy] = useState(false);
+
   const [intervalOptions, setIntervalOptions] = useState([]);
   const [markets, setMarkets] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, pageSize: 8, total: 0, totalPages: 1 });
@@ -54,6 +63,62 @@ export default function AdminViews() {
   const [downloadStartDate, setDownloadStartDate] = useState("");
   const [downloadEndDate, setDownloadEndDate] = useState("");
 
+  const checkAdmin = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/admin/me`, fetchOpts);
+      if (!res.ok) {
+        setAdmin(null);
+        return false;
+      }
+      const data = await res.json();
+      setAdmin(data);
+      return true;
+    } catch {
+      setAdmin(null);
+      return false;
+    }
+  }, []);
+
+  useEffect(() => {
+    checkAdmin().finally(() => setAuthChecking(false));
+  }, [checkAdmin]);
+
+  async function handleAdminLogin(event) {
+    event.preventDefault();
+    setLoginError("");
+    setLoginBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/auth/admin/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ username: loginUsername.trim(), password: loginPassword }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setLoginError(body.message ?? "Login failed");
+        return;
+      }
+      setLoginPassword("");
+      setAdmin({ username: body.username, ok: true });
+      setMessage("");
+    } catch {
+      setLoginError("Network error — is the backend running?");
+    } finally {
+      setLoginBusy(false);
+    }
+  }
+
+  async function handleAdminLogout() {
+    await fetch(`${API_BASE}/auth/admin/logout`, { method: "POST", credentials: "include" }).catch(
+      () => null
+    );
+    setAdmin(null);
+    setMarkets([]);
+    setAllMarkets([]);
+    setMessage("Signed out of admin.");
+  }
+
   async function loadInitial(
     targetPage = pagination.page,
     targetSearch = searchKeyword,
@@ -64,12 +129,17 @@ export default function AdminViews() {
     }
     try {
       const [intervalRes, marketRes, allNamesRes] = await Promise.all([
-        fetch(`${API_BASE}/interval-options`),
+        fetch(`${API_BASE}/interval-options`, fetchOpts),
         fetch(
-          `${API_BASE}/markets?page=${targetPage}&pageSize=${pagination.pageSize}&search=${encodeURIComponent(targetSearch)}`
+          `${API_BASE}/markets?page=${targetPage}&pageSize=${pagination.pageSize}&search=${encodeURIComponent(targetSearch)}`,
+          fetchOpts
         ),
-        fetch(`${API_BASE}/markets?page=1&pageSize=1000`),
+        fetch(`${API_BASE}/markets?page=1&pageSize=1000`, fetchOpts),
       ]);
+      if (intervalRes.status === 401 || marketRes.status === 401) {
+        setAdmin(null);
+        return;
+      }
       const intervalData = await intervalRes.json();
       const marketData = await marketRes.json();
       const allMarketData = await allNamesRes.json();
@@ -81,10 +151,13 @@ export default function AdminViews() {
         total: marketData.total ?? 0,
         totalPages: marketData.totalPages ?? 1,
       });
-      setAllMarkets(allMarketData.items ?? []);
-      if (allMarketData.items?.length && !downloadMarketId) {
-        setDownloadMarketId(String(allMarketData.items[0].id));
-      }
+      const items = allMarketData.items ?? [];
+      setAllMarkets(items);
+      // Preserve current selection across polls; only default once / if id disappeared.
+      setDownloadMarketId((prev) => {
+        if (prev && items.some((m) => String(m.id) === prev)) return prev;
+        return items.length ? String(items[0].id) : "";
+      });
     } catch {
       setMessage("Failed to load data. Is backend running?");
     } finally {
@@ -95,21 +168,19 @@ export default function AdminViews() {
   }
 
   useEffect(() => {
+    if (!admin) return;
     void loadInitial(1, "", { showLoading: true });
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only on admin session grant
+  }, [admin?.username]);
 
   useEffect(() => {
+    if (!admin) return undefined;
     const timer = setInterval(() => {
       void loadInitial(pagination.page, searchKeyword, { showLoading: false });
     }, 5000);
     return () => clearInterval(timer);
-  }, [pagination.page, searchKeyword]);
-
-  useEffect(() => {
-    if (!downloadMarketId && allMarkets.length) {
-      setDownloadMarketId(String(allMarkets[0].id));
-    }
-  }, [downloadMarketId, allMarkets]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [admin, pagination.page, searchKeyword]);
 
   async function createMarket(event) {
     event.preventDefault();
@@ -128,9 +199,15 @@ export default function AdminViews() {
     const response = await fetch(`${API_BASE}/markets`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify(payload),
     });
 
+    if (response.status === 401) {
+      setAdmin(null);
+      setMessage("Admin session expired. Sign in again.");
+      return;
+    }
     if (!response.ok) {
       const errorBody = await response.json().catch(() => ({}));
       setMessage(errorBody.message ?? "Failed to create market");
@@ -144,7 +221,14 @@ export default function AdminViews() {
 
   async function deleteMarket(id) {
     setMessage("");
-    const response = await fetch(`${API_BASE}/markets/${id}`, { method: "DELETE" });
+    const response = await fetch(`${API_BASE}/markets/${id}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (response.status === 401) {
+      setAdmin(null);
+      return;
+    }
     if (!response.ok) {
       setMessage("Failed to delete market");
       return;
@@ -155,7 +239,14 @@ export default function AdminViews() {
 
   async function syncMarket(id) {
     setMessage("Syncing...");
-    const response = await fetch(`${API_BASE}/markets/${id}/sync`, { method: "POST" });
+    const response = await fetch(`${API_BASE}/markets/${id}/sync`, {
+      method: "POST",
+      credentials: "include",
+    });
+    if (response.status === 401) {
+      setAdmin(null);
+      return;
+    }
     if (!response.ok) {
       const errorBody = await response.json().catch(() => ({}));
       setMessage(errorBody.message ?? "Sync failed");
@@ -175,8 +266,13 @@ export default function AdminViews() {
     const start = toMs(downloadStartDate);
     const end = toMs(downloadEndDate) + 24 * 60 * 60 * 1000 - 1;
     const url = `${API_BASE}/markets/download?market=${encodeURIComponent(selected.name)}&interval=${encodeURIComponent(selected.interval)}&start=${start}&end=${end}`;
-    fetch(url, { headers: adminHeaders() })
+    fetch(url, { credentials: "include" })
       .then(async (response) => {
+        if (response.status === 401) {
+          setAdmin(null);
+          setMessage("Admin session expired. Sign in again.");
+          return;
+        }
         if (!response.ok) {
           const body = await response.json().catch(() => ({}));
           setMessage(body.message ?? "Download failed");
@@ -189,6 +285,7 @@ export default function AdminViews() {
         anchor.download = `${selected.name}-${selected.interval}-${start}-${end}.csv`;
         anchor.click();
         URL.revokeObjectURL(objectUrl);
+        setMessage("CSV downloaded (admin — no daily limit).");
       })
       .catch(() => setMessage("Download failed"));
   }
@@ -198,8 +295,13 @@ export default function AdminViews() {
     const response = await fetch(`${API_BASE}/markets/${marketId}/live`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ enabled }),
     });
+    if (response.status === 401) {
+      setAdmin(null);
+      return;
+    }
     if (!response.ok) {
       const errorBody = await response.json().catch(() => ({}));
       setMessage(errorBody.message ?? "Live toggle failed");
@@ -226,7 +328,14 @@ export default function AdminViews() {
       [marketId]: { loading: true, error: null, data: null },
     }));
     try {
-      const response = await fetch(`${API_BASE}/markets/${marketId}/data-check?maxReported=500`);
+      const response = await fetch(
+        `${API_BASE}/markets/${marketId}/data-check?maxReported=500`,
+        fetchOpts
+      );
+      if (response.status === 401) {
+        setAdmin(null);
+        return;
+      }
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
         setDataCheckById((prev) => ({
@@ -247,15 +356,79 @@ export default function AdminViews() {
     }
   }
 
+  if (authChecking) {
+    return (
+      <div className="app">
+        <header className="page-header">
+          <SiteBrand title="Admin" subtitle="Checking session…" action={<ThemeToggle />} />
+        </header>
+        <p className="meta">Loading…</p>
+      </div>
+    );
+  }
+
+  if (!admin) {
+    return (
+      <div className="app">
+        <header className="page-header">
+          <SiteBrand
+            title="Admin sign-in"
+            subtitle="Credentials required to manage markets and unlimited CSV export."
+            action={
+              <>
+                <ThemeToggle />
+                <Link to="/" className="nav-link">
+                  Dashboard
+                </Link>
+              </>
+            }
+          />
+        </header>
+        <section className="card admin-login-card">
+          <h2>Admin login</h2>
+          <p className="meta">Hub sign-in does not grant admin access. Use the admin username and password.</p>
+          <form onSubmit={handleAdminLogin} onKeyDown={handleFormEnterKeyDown} className="row-form">
+            <label>
+              Username
+              <input
+                autoComplete="username"
+                value={loginUsername}
+                onChange={(e) => setLoginUsername(e.target.value)}
+                required
+              />
+            </label>
+            <label>
+              Password
+              <input
+                type="password"
+                autoComplete="current-password"
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                required
+              />
+            </label>
+            <button type="submit" className="primary" disabled={loginBusy}>
+              {loginBusy ? "Signing in…" : "Sign in"}
+            </button>
+          </form>
+          {loginError ? <p className="message">{loginError}</p> : null}
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="app">
       <header className="page-header">
         <SiteBrand
           title="Binance Price Candle Manager"
-          subtitle="Manage market sync and export candle data."
+          subtitle={`Signed in as ${admin.username}. Manage market sync and export candle data.`}
           action={
             <>
               <ThemeToggle />
+              <button type="button" className="ghost" onClick={() => void handleAdminLogout()}>
+                Admin logout
+              </button>
               <Link to="/" className="nav-link">
                 Dashboard
               </Link>
