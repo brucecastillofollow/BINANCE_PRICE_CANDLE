@@ -1,5 +1,7 @@
 import { createApp } from "./app.js";
-import { config } from "./config.js";
+import { config, validateEnv } from "./config.js";
+
+validateEnv();
 import { closeDb, initDb } from "./db.js";
 import { pool } from "./db.js";
 import { enqueueMarketSync } from "./services/syncQueue.js";

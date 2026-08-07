@@ -46,3 +46,43 @@ export const config = {
   appBaseUrl: (process.env.APP_BASE_URL ?? `http://localhost:${Number(process.env.BACKEND_PORT ?? 4000)}`).replace(/\/$/, ""),
   defaultProjectSlug: process.env.DEFAULT_PROJECT_SLUG ?? "binance",
 };
+
+// Values shipped in the README/.env.example. Booting with any of these means the
+// signing key is public knowledge, so startup fails rather than serving with it.
+const INSECURE_SECRETS = new Set([
+  "",
+  "change-me-in-production",
+  "change-me-in-production-binance",
+  "change-me-in-production-fanduel",
+  "change-this-session-secret"
+]);
+
+// Long enough that an offline attack on the HS256 signature is not worthwhile.
+const MIN_SECRET_LENGTH = 32;
+
+export function validateEnv() {
+  if (INSECURE_SECRETS.has(config.authJwtSecret)) {
+    throw new Error(
+      "AUTH_JWT_SECRET is unset or still a placeholder. Set it in .env to the " +
+        "same value the hub uses, otherwise anyone can forge a session."
+    );
+  }
+  if (INSECURE_SECRETS.has(config.jwtSecret)) {
+    throw new Error("JWT_SECRET is unset or still a placeholder. Set it in .env.");
+  }
+  if (config.adminPassword && ["admin", "change-this-password"].includes(config.adminPassword)) {
+    throw new Error("ADMIN_PASSWORD is still a default value. Set a strong password in .env.");
+  }
+
+  for (const [name, value] of [
+    ["AUTH_JWT_SECRET", config.authJwtSecret],
+    ["JWT_SECRET", config.jwtSecret]
+  ]) {
+    if (value.length < MIN_SECRET_LENGTH) {
+      console.warn(
+        `warning: ${name} is only ${value.length} characters; ${MIN_SECRET_LENGTH}+ ` +
+          "recommended so the signing key cannot be recovered by offline brute force."
+      );
+    }
+  }
+}

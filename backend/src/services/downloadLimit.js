@@ -4,10 +4,17 @@ function utcDateKey(date = new Date()) {
   return date.toISOString().slice(0, 10);
 }
 
+/**
+ * Identity the once-per-day CSV limit is counted against.
+ *
+ * Deliberately uses `req.ip` rather than reading X-Forwarded-For directly.
+ * nginx *appends* to that header, so its first entry is whatever the caller
+ * chose to send — reading it made the daily limit bypassable by varying the
+ * header per request. `req.ip` honours the app's `trust proxy` setting and
+ * resolves to the hop the trusted proxy actually saw.
+ */
 export function getClientKey(req) {
-  const forwarded = req.headers["x-forwarded-for"];
-  const ip = typeof forwarded === "string" ? forwarded.split(",")[0].trim() : req.ip;
-  return ip || "unknown";
+  return req.ip || "unknown";
 }
 
 export async function canDownloadToday(clientKey) {
