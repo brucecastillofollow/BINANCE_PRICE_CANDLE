@@ -1,0 +1,102 @@
+# Crypto Market Data — cryptodataset.weienwong.online
+# Part of the Weien Wong platform ecosystem: https://weienwong.online/
+
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /login
+Disallow: /signup
+
+# --- AI search & answer engines (explicitly welcomed) ---
+
+User-agent: GPTBot
+Allow: /
+Disallow: /api/
+Disallow: /login
+Disallow: /signup
+
+User-agent: OAI-SearchBot
+Allow: /
+Disallow: /api/
+Disallow: /login
+Disallow: /signup
+
+User-agent: ChatGPT-User
+Allow: /
+Disallow: /api/
+Disallow: /login
+Disallow: /signup
+
+User-agent: PerplexityBot
+Allow: /
+Disallow: /api/
+Disallow: /login
+Disallow: /signup
+
+User-agent: Perplexity-User
+Allow: /
+Disallow: /api/
+Disallow: /login
+Disallow: /signup
+
+User-agent: ClaudeBot
+Allow: /
+Disallow: /api/
+Disallow: /login
+Disallow: /signup
+
+User-agent: Claude-User
+Allow: /
+Disallow: /api/
+Disallow: /login
+Disallow: /signup
+
+User-agent: Claude-SearchBot
+Allow: /
+Disallow: /api/
+Disallow: /login
+Disallow: /signup
+
+User-agent: Google-Extended
+Allow: /
+Disallow: /api/
+Disallow: /login
+Disallow: /signup
+
+User-agent: Applebot-Extended
+Allow: /
+Disallow: /api/
+Disallow: /login
+Disallow: /signup
+
+User-agent: DuckAssistBot
+Allow: /
+Disallow: /api/
+Disallow: /login
+Disallow: /signup
+
+User-agent: CCBot
+Allow: /
+Disallow: /api/
+Disallow: /login
+Disallow: /signup
+
+User-agent: Meta-ExternalAgent
+Allow: /
+Disallow: /api/
+Disallow: /login
+Disallow: /signup
+
+User-agent: Amazonbot
+Allow: /
+Disallow: /api/
+Disallow: /login
+Disallow: /signup
+
+User-agent: YouBot
+Allow: /
+Disallow: /api/
+Disallow: /login
+Disallow: /signup
+
+Sitemap: https://cryptodataset.weienwong.online/sitemap.xml

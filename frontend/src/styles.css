@@ -573,3 +573,46 @@ a {
     height: clamp(220px, 45vh, 300px);
   }
 }
+
+/* --- Ecosystem cross-links (footer) --- */
+.site-footer {
+  margin-top: 2.5rem;
+  padding: 1.5rem 0 1rem;
+  border-top: 1px solid var(--border, rgba(128, 128, 128, 0.25));
+  text-align: center;
+}
+
+.ecosystem-heading {
+  margin: 0 0 0.6rem;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted, #8b949e);
+}
+
+.ecosystem-links ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.4rem 1.1rem;
+}
+
+.ecosystem-links a {
+  font-size: 0.85rem;
+  color: var(--muted, #8b949e);
+  text-decoration: none;
+}
+
+.ecosystem-links a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.footer-copy {
+  margin: 1rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted, #8b949e);
+}

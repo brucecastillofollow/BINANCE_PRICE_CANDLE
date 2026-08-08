@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from "../auth/AuthContext.jsx";
 import { handleFormEnterKeyDown } from "../lib/formEnter.js";
 import SiteBrand from "../components/SiteBrand.jsx";
 import ThemeToggle from "../components/ThemeToggle.jsx";
+import EcosystemLinks from "../components/EcosystemLinks.jsx";
 
 function AuthGate() {
   const { user, refreshUser, logout, sendInvite, hubAuthUrl, booting } = useAuth();
@@ -70,6 +71,7 @@ function AuthGate() {
             <li>CSV download for offline analysis (unlock with one invite)</li>
           </ul>
         </section>
+        <EcosystemLinks />
       </div>
     );
   }
@@ -111,6 +113,7 @@ function AuthGate() {
       </section>
 
       <Outlet />
+      <EcosystemLinks />
     </div>
   );
 }
