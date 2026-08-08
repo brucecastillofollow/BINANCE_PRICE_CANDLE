@@ -8,6 +8,7 @@
   --muted: #71767b;
   --accent: #818cf8;
   --accent-strong: #6366f1;
+  --accent-contrast: #16181c;
   --link: #818cf8;
   --warn: #ffd400;
   --ok: #00ba7c;
@@ -33,6 +34,7 @@
   --muted: #475569;
   --accent: #4f46e5;
   --accent-strong: #4338ca;
+  --accent-contrast: #ffffff;
   --link: #4f46e5;
   --warn: #b45309;
   --ok: #15803d;
@@ -194,7 +196,7 @@ button:hover {
 
 .primary {
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-contrast);
   border-color: var(--accent);
 }
 
