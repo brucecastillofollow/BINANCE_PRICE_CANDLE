@@ -618,3 +618,105 @@ a {
   font-size: 0.8rem;
   color: var(--muted, #8b949e);
 }
+
+/* ------------------------------------------------------- scrollbars (shared)
+   Default scrollbars are a light-grey chrome widget that sits badly on a dark
+   panel and changes width between platforms, which shifts layout. These are
+   theme-aware, overlay-thin, and sized identically everywhere.
+
+   Two mechanisms, both needed:
+     * scrollbar-width / scrollbar-color — the standard, Firefox and modern
+       Chromium. Only accepts a thumb and track colour, nothing else.
+     * ::-webkit-scrollbar-* — Chromium and Safari, where the finer control is.
+   Colours come from existing theme variables, with literal fallbacks so this
+   block still works when pasted into a page that has no token layer.
+
+   Scroll containers also get overscroll-behavior so a table that reaches its
+   end stops rather than scrolling the page behind it, and a momentum flag for
+   iOS. */
+
+:root {
+  --sb-size: 10px;
+  --sb-thumb: color-mix(in srgb, currentColor 26%, transparent);
+  --sb-thumb-hover: color-mix(in srgb, currentColor 45%, transparent);
+  --sb-track: transparent;
+}
+
+/* color-mix is widely supported but not universal; these fall back to fixed
+   translucent values where it is missing. */
+@supports not (color: color-mix(in srgb, red 50%, transparent)) {
+  :root {
+    --sb-thumb: rgba(128, 149, 173, 0.42);
+    --sb-thumb-hover: rgba(128, 149, 173, 0.68);
+  }
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--sb-thumb) var(--sb-track);
+}
+
+*::-webkit-scrollbar {
+  width: var(--sb-size);
+  height: var(--sb-size);
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--sb-track);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--sb-thumb);
+  border-radius: 999px;
+  /* A transparent border with background-clip gives the thumb breathing room
+     inside the gutter, so it reads as a floating pill rather than a bar
+     welded to the edge. */
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--sb-thumb-hover);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner { background: transparent; }
+
+/* Any element that scrolls: keep the gesture contained and smooth. */
+.table-wrap,
+.scroll-x,
+.scroll-y,
+pre,
+textarea {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Horizontal scroll container that hints there is more to the right. The
+   gradient is painted on the container background and pinned with
+   background-attachment: local, so it appears only when content overflows and
+   fades out as the user reaches each end. */
+.scroll-x,
+.table-wrap {
+  overflow-x: auto;
+  background:
+    linear-gradient(to right, var(--bg-elevated, #fff) 30%, rgba(0, 0, 0, 0)) left center,
+    linear-gradient(to left, var(--bg-elevated, #fff) 30%, rgba(0, 0, 0, 0)) right center,
+    radial-gradient(farthest-side at 0 50%, rgba(0, 0, 0, 0.22), rgba(0, 0, 0, 0)) left center,
+    radial-gradient(farthest-side at 100% 50%, rgba(0, 0, 0, 0.22), rgba(0, 0, 0, 0)) right center;
+  background-repeat: no-repeat;
+  background-size: 40px 100%, 40px 100%, 14px 100%, 14px 100%;
+  background-attachment: local, local, scroll, scroll;
+}
+
+/* Vertical scroll container with a capped height — used for any table or list
+   that would otherwise run past the fold. */
+.scroll-y {
+  overflow-y: auto;
+  max-height: min(70vh, 640px);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+}
