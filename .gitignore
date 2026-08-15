@@ -2,3 +2,7 @@
 backend/node_modules
 frontend/node_modules
 frontend/dist
+# Catch-all for every .env variant: backups, timestamped copies and
+# per-environment files. A narrow pattern missed .env.bak-<stamp> once.
+.env*
+!.env.example
