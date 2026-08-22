@@ -1,16 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Weien Wong Social Data">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Weien Wong">
   <defs>
-    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+    <!-- userSpaceOnUse, not the default objectBoundingBox: the horizontal
+         connector is a zero-height box, so a bounding-box gradient degenerates
+         and the line is never painted. This also makes one ramp run across the
+         whole mark instead of restarting inside every shape. -->
+    <linearGradient id="g" gradientUnits="userSpaceOnUse" x1="124" y1="200" x2="388" y2="330">
       <stop offset="0%" stop-color="#238636"/>
       <stop offset="50%" stop-color="#388bfd"/>
       <stop offset="100%" stop-color="#8957e5"/>
     </linearGradient>
   </defs>
   <rect width="512" height="512" rx="96" fill="#0d1117"/>
+  <g stroke="url(#g)" stroke-width="8" stroke-linecap="round">
+    <line x1="256" y1="248" x2="160" y2="284"/>
+    <line x1="256" y1="248" x2="352" y2="284"/>
+    <line x1="196" y1="320" x2="316" y2="320"/>
+  </g>
   <circle cx="256" cy="200" r="48" fill="url(#g)" opacity="0.9"/>
   <circle cx="160" cy="320" r="36" fill="url(#g)" opacity="0.7"/>
   <circle cx="352" cy="320" r="36" fill="url(#g)" opacity="0.7"/>
-  <line x1="256" y1="248" x2="160" y2="284" stroke="url(#g)" stroke-width="8" stroke-linecap="round"/>
-  <line x1="256" y1="248" x2="352" y2="284" stroke="url(#g)" stroke-width="8" stroke-linecap="round"/>
-  <line x1="196" y1="320" x2="316" y2="320" stroke="url(#g)" stroke-width="8" stroke-linecap="round"/>
 </svg>
