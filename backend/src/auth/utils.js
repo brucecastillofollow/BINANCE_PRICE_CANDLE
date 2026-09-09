@@ -30,12 +30,20 @@ export function createToken({ userId, projectId, email }) {
   });
 }
 
+// Verify a hub identity token. Anything else throws.
+//
+// The JWT_SECRET fall-back that used to sit in the catch is gone. It verified
+// with no issuer and no required claims, so a token with no exp never expired;
+// and because authJwtSecret falls back to JWT_SECRET when AUTH_JWT_SECRET is
+// unset, wherever that default applied it re-judged, under weaker rules, the
+// very token decodeIdentityToken had just rejected.
+//
+// It also crossed two token types that are meant to stay apart: createAdminToken
+// signs with jwtSecret, so an admin session token verified here and was handed
+// to requireAuth as an ordinary identity, with the admin's username as `sub`.
+// Admin tokens have their own decoder -- decodeAdminToken -- which checks role.
 export function decodeToken(token) {
-  try {
-    return decodeIdentityToken(token, config.authJwtSecret);
-  } catch {
-    return jwt.verify(token, config.jwtSecret);
-  }
+  return decodeIdentityToken(token, config.authJwtSecret);
 }
 
 export function generateInviteToken() {

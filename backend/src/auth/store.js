@@ -60,7 +60,21 @@ export async function ensureUserFromIdentity(userId, email) {
   let user = await getUserById(userId);
   if (user) return user;
   const byEmail = email ? await getUserByEmail(email) : null;
-  if (byEmail) return byEmail;
+  if (byEmail) {
+    // Only adopt a row this service made for a hub identity. A row with a real
+    // hash predates the removal of local registration and belongs to whoever
+    // chose that password -- and the hub does not verify that a registrant owns
+    // the address they sign up with, so the email in a token is not proof the
+    // sender owns this account.
+    if ((byEmail.password_hash || "") !== hubOnlyHash) {
+      const error = new Error(
+        "An account with this email already exists here with its own password."
+      );
+      error.status = 403;
+      throw error;
+    }
+    return byEmail;
+  }
   const { rows } = await pool.query(
     `INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)
      RETURNING id, email, created_at`,
