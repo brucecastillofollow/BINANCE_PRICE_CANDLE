@@ -77,6 +77,20 @@ export function decodeAdminToken(token) {
   return payload;
 }
 
+export function adminEmails() {
+  return new Set(
+    String(config.adminEmails || "")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
+export function isAdminEmail(email) {
+  const listed = adminEmails();
+  return Boolean(email) && listed.has(String(email).trim().toLowerCase());
+}
+
 export function getAdminTokenFromRequest(req) {
   const headerKey = req.headers["x-admin-key"];
   if (config.adminApiKey && headerKey && headerKey === config.adminApiKey) {
@@ -84,13 +98,33 @@ export function getAdminTokenFromRequest(req) {
   }
   const cookieName = config.adminCookieName;
   const token = req.cookies?.[cookieName];
-  if (!token) return null;
-  try {
-    const payload = decodeAdminToken(token);
-    return { via: "cookie", username: String(payload.sub || "admin"), token };
-  } catch {
-    return null;
+  if (token) {
+    try {
+      const payload = decodeAdminToken(token);
+      return { via: "cookie", username: String(payload.sub || "admin"), token };
+    } catch {
+      // Not an admin session; fall through to the hub allowlist below.
+    }
   }
+
+  // A hub identity listed in ADMIN_EMAILS is an administrator here -- the same
+  // env-driven allowlist the rest of the fleet uses. Checked last, so the
+  // dedicated admin session and API key keep working exactly as before.
+  if (adminEmails().size) {
+    const hubToken = getTokenFromRequest(req, config.authCookieName);
+    if (hubToken) {
+      try {
+        const identity = decodeIdentityToken(hubToken, config.authJwtSecret);
+        const email = String(identity.email || "").trim().toLowerCase();
+        if (email && adminEmails().has(email)) {
+          return { via: "hub_identity", username: email };
+        }
+      } catch {
+        // Not a valid hub token, so not an administrator by this route.
+      }
+    }
+  }
+  return null;
 }
 
 export function adminCookieOptions() {

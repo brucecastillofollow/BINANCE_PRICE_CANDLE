@@ -32,6 +32,9 @@ export const config = {
       .filter(Boolean)
       .join(","),
   adminApiKey: process.env.ADMIN_API_KEY ?? "",
+  // Hub identities that are administrators here. Was set in .env and read
+  // nowhere, so listing an address silently did nothing.
+  adminEmails: process.env.ADMIN_EMAILS ?? "",
   adminUsername: process.env.ADMIN_USERNAME ?? "admin",
   adminPassword: process.env.ADMIN_PASSWORD ?? process.env.ADMIN_API_KEY ?? "",
   adminCookieName: process.env.ADMIN_COOKIE_NAME ?? "binance_admin_session",
