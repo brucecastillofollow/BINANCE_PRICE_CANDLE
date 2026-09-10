@@ -174,7 +174,12 @@ export default function Dashboard() {
     <>
       {message ? <p className="message">{message}</p> : null}
 
-      <section className="card">
+      <section
+        className="card"
+        data-tour="1"
+        data-tour-title="Pick a market"
+        data-tour-body="Add the trading pair and interval you want candles for. Each one is collected continuously from Binance once it is registered."
+      >
         <h2>Market Chart</h2>
         {loading ? <p>Loading markets...</p> : null}
         {!loading && !markets.length ? <p>No registered markets yet.</p> : null}
@@ -222,7 +227,12 @@ export default function Dashboard() {
         ) : null}
       </section>
 
-      <section className="card">
+      <section
+        className="card"
+        data-tour="2"
+        data-tour-title="Take the data away"
+        data-tour-body="Choose a range and download it as CSV. The history goes back to when the market was first registered here, not to when you asked."
+      >
         <h2>Download CSV</h2>
         <p className="meta download-note">
           {!inviteUnlocked
