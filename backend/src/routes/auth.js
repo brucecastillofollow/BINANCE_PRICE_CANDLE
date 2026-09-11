@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { rejectRevoked } from "../auth/hubSession.js";
 import { config } from "../config.js";
 import {
   acceptInvite,
@@ -126,6 +127,7 @@ export function createAuthRouter() {
       }
 
       const identity = decodeToken(token);
+      await rejectRevoked(identity);
       const user = await ensureUserFromIdentity(String(identity.sub), String(identity.email || invite.email));
       if (invite.email.toLowerCase() !== String(user.email).toLowerCase()) {
         return res.status(403).json({ message: "Signed-in hub account does not match invite email" });
@@ -160,6 +162,7 @@ export function requireAuth(req, res, next) {
       }
 
       const payload = decodeToken(token);
+      await rejectRevoked(payload);
       const project = await ensureDefaultProject();
 
       if (payload.project_id && payload.project_id !== project.id) {
