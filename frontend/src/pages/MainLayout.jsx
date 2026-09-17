@@ -27,7 +27,6 @@ function AuthGate() {
   if (booting) return <p className="message">Loading...</p>;
 
   if (!user) {
-    const returnTo = encodeURIComponent(window.location.href);
     return (
       <div className="app">
         <header className="page-header project-header">
@@ -40,22 +39,30 @@ function AuthGate() {
           </div>
         </header>
         <section className="card auth-card">
-          <h2>Sign in required</h2>
-          <p className="meta">Use your Weien Wong hub account to access Binance Candle Data.</p>
+          <h2>Sign in to continue</h2>
+          <p className="meta">
+            <strong>Create your account here and it works on every weienwong.online service</strong>
+            {" "}&mdash; sign in once, use them all. Already registered on another one? Just sign in.
+          </p>
+          {/* data-ww-signup / data-ww-signin are picked up by ww-auth.js (loaded in
+              index.html) through a document-level listener, so React rendering
+              these is enough. The dialog posts to weienwong.online itself and the
+              page reloads signed in -- nobody is sent to another site. */}
           <button
             type="button"
             className="primary"
             style={{ width: "100%", marginTop: 12 }}
-            onClick={() => {
-              window.location.href = `${hubAuthUrl}/login?return_to=${returnTo}`;
-            }}
+            data-ww-signup
           >
-            Sign in at Weien Wong Hub
+            Create a free account
           </button>
-          <p className="meta" style={{ marginTop: 12 }}>
-            No account?{" "}
-            <a href={`${hubAuthUrl}/register?return_to=${returnTo}`}>Create one at the hub</a>
-          </p>
+          <button
+            type="button"
+            style={{ width: "100%", marginTop: 8 }}
+            data-ww-signin
+          >
+            I already have one
+          </button>
         </section>
         <section className="card auth-about-card">
           <h2>What this platform does</h2>

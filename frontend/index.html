@@ -52,6 +52,13 @@
       <script src="https://weienwong.online/static/js/ww-dialog.js"></script>
   <script src="https://weienwong.online/static/js/ww-visit.js?v=2" defer></script>
   <script src="https://weienwong.online/static/js/ww-tour.js"></script>
+  <script src="https://weienwong.online/static/js/ww-auth.js"></script>
+  <script>
+    // The sign-in / create-account dialog. It talks to weienwong.online behind
+    // the scenes; the visitor never leaves this page, and the account they
+    // make here is the same one on every other weienwong.online service.
+    if (window.WWAuth) WWAuth.init({ hub: "https://weienwong.online" });
+  </script>
 </head>
   <body>
     <div id="root"></div>
