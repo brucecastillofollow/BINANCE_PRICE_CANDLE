@@ -1,5 +1,6 @@
 import dayjs from "dayjs";
 import utc from "dayjs/plugin/utc.js";
+import { getIntervalStepMs } from "../intervalStep.js";
 
 dayjs.extend(utc);
 
@@ -24,14 +25,15 @@ function isPlausibleKlineMs(ms) {
   return ms >= MIN_KLINE_MS && ms <= maxKlineMs();
 }
 
-/**
- * Same rule as binanceSync: next calendar day to fetch from `lastMs`.
- */
-export function firstCalendarDayToFetch(lastMs) {
+/** Next calendar day to fetch after the last recorded candle. */
+export function firstCalendarDayToFetch(lastMs, interval) {
   const sod = dayjs(lastMs).utc().startOf("day");
   const msIntoDay = lastMs - sod.valueOf();
   const fullDayMs = 24 * 60 * 60 * 1000;
-  if (msIntoDay >= fullDayMs - 2 * 60 * 1000) {
+  // Keep the existing two-minute tolerance for 1m. Longer intervals finish
+  // with an earlier open time, such as 23:55 for the final 5m candle.
+  const completionMarginMs = Math.max(2 * 60 * 1000, Math.min(getIntervalStepMs(interval), fullDayMs));
+  if (msIntoDay >= fullDayMs - completionMarginMs) {
     return sod.add(1, "day");
   }
   return sod;
@@ -52,7 +54,7 @@ export function getMarketSyncDelayDays(market) {
 
   const yesterday = dayjs().utc().startOf("day").subtract(1, "day");
   const startDate = dayjs(startMs).utc().startOf("day");
-  let currentDate = firstCalendarDayToFetch(lastMs);
+  let currentDate = firstCalendarDayToFetch(lastMs, market.interval);
   if (currentDate.isBefore(startDate)) {
     currentDate = startDate;
   }

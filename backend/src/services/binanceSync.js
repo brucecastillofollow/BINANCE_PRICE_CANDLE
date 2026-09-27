@@ -208,7 +208,7 @@ export async function syncMarketData(market) {
 
     const yesterday = dayjs().utc().startOf("day").subtract(1, "day");
     const startDate = dayjs(startMs).utc().startOf("day");
-    let currentDate = firstCalendarDayToFetch(lastMs);
+    let currentDate = firstCalendarDayToFetch(lastMs, market.interval);
     if (currentDate.isBefore(startDate)) {
       currentDate = startDate;
     }
