@@ -20,6 +20,13 @@ export const config = {
   port: Number(process.env.BACKEND_PORT ?? process.env.PORT ?? 4000),
   databaseUrl,
   syncWorkerCount: Number(process.env.SYNC_WORKER_COUNT ?? 3),
+  // Symbol:interval pairs omitted from startup/daily automatic sync only.
+  autoSyncExcludedMarkets: new Set(
+    (process.env.AUTO_SYNC_EXCLUDE_MARKETS ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)
+  ),
   /** UTC hour (0–23) for automatic daily sync of all markets */
   dailySyncHourUtc: Number(process.env.DAILY_SYNC_HOUR_UTC ?? 1),
   corsOrigin:

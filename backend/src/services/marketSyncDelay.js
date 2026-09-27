@@ -80,3 +80,10 @@ export function sortMarketsBySyncDelay(markets) {
     }))
     .sort((a, b) => b.delayDays - a.delayDays);
 }
+
+/** Exclusions apply to automatic startup/daily sync, not manual sync requests. */
+export function selectAutoSyncMarkets(markets, excludedMarketKeys) {
+  return sortMarketsBySyncDelay(markets).filter(
+    ({ market }) => !excludedMarketKeys.has(`${market.name}:${market.interval}`)
+  );
+}

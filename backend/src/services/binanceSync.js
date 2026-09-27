@@ -93,26 +93,29 @@ function parseZipCsv(buffer) {
   });
 }
 
-async function insertCandles(client, tableName, rows) {
+const CANDLE_INSERT_BATCH_SIZE = 100;
+
+/** Upsert a daily ZIP in small chunks instead of one database round trip per candle. */
+export async function insertCandles(client, tableName, rows) {
   if (!rows.length) {
     return { latestOpenTime: null, insertedCount: 0 };
   }
 
   let latestOpenTime = null;
   let insertedCount = 0;
-  for (const row of rows) {
-    if (!Array.isArray(row) || row.length < 12) {
-      continue;
-    }
-    const openTime = normalizeBinanceCsvTimeMs(row[0]);
-    const closeTime = normalizeBinanceCsvTimeMs(row[6]);
-    if (openTime === null || closeTime === null) {
-      continue;
-    }
-    if (!isPlausibleKlineMs(openTime) || !isPlausibleKlineMs(closeTime)) {
-      continue;
-    }
+  const pending = new Map();
 
+  async function flush() {
+    if (pending.size === 0) {
+      return;
+    }
+    const values = [];
+    const tuples = [];
+    for (const candle of pending.values()) {
+      const firstParameter = values.length + 1;
+      tuples.push(`(${candle.map((_, index) => `$${firstParameter + index}`).join(",")})`);
+      values.push(...candle);
+    }
     await client.query(
       `
         INSERT INTO ${tableName} (
@@ -120,7 +123,7 @@ async function insertCandles(client, tableName, rows) {
           quote_asset_volume, number_of_trades, taker_buy_base_asset_volume,
           taker_buy_quote_asset_volume, ignore_value
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        VALUES ${tuples.join(",")}
         ON CONFLICT (open_time) DO UPDATE SET
           open = EXCLUDED.open,
           high = EXCLUDED.high,
@@ -134,27 +137,49 @@ async function insertCandles(client, tableName, rows) {
           taker_buy_quote_asset_volume = EXCLUDED.taker_buy_quote_asset_volume,
           ignore_value = EXCLUDED.ignore_value
       `,
-      [
-        openTime,
-        row[1],
-        row[2],
-        row[3],
-        row[4],
-        row[5],
-        closeTime,
-        row[7],
-        Number(row[8]),
-        row[9],
-        row[10],
-        row[11],
-      ]
+      values
     );
-    insertedCount += 1;
+    pending.clear();
+  }
 
+  for (const row of rows) {
+    if (!Array.isArray(row) || row.length < 12) {
+      continue;
+    }
+    const openTime = normalizeBinanceCsvTimeMs(row[0]);
+    const closeTime = normalizeBinanceCsvTimeMs(row[6]);
+    if (openTime === null || closeTime === null) {
+      continue;
+    }
+    if (!isPlausibleKlineMs(openTime) || !isPlausibleKlineMs(closeTime)) {
+      continue;
+    }
+
+    // Duplicate timestamps in one INSERT would make PostgreSQL update the same
+    // row twice and fail. Keep the final CSV value, as the old row-by-row loop did.
+    pending.set(openTime, [
+      openTime,
+      row[1],
+      row[2],
+      row[3],
+      row[4],
+      row[5],
+      closeTime,
+      row[7],
+      Number(row[8]),
+      row[9],
+      row[10],
+      row[11],
+    ]);
+    insertedCount += 1;
     if (latestOpenTime === null || openTime > latestOpenTime) {
       latestOpenTime = openTime;
     }
+    if (pending.size >= CANDLE_INSERT_BATCH_SIZE) {
+      await flush();
+    }
   }
+  await flush();
 
   return { latestOpenTime, insertedCount };
 }

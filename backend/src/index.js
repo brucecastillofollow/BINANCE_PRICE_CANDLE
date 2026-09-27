@@ -7,21 +7,23 @@ import { pool } from "./db.js";
 import { enqueueMarketSync } from "./services/syncQueue.js";
 import { initLiveFromDb, shutdownLive } from "./services/binanceLive.js";
 import { startDailyMarketSync } from "./services/dailySyncSchedule.js";
-import { sortMarketsBySyncDelay } from "./services/marketSyncDelay.js";
+import { sortMarketsBySyncDelay, selectAutoSyncMarkets } from "./services/marketSyncDelay.js";
 
 /** Enqueue only markets behind yesterday; most delayed first. */
 async function syncDelayedMarketsFirst() {
   const result = await pool.query("SELECT * FROM markets");
-  const delayed = sortMarketsBySyncDelay(result.rows);
-  const upToDate = result.rows.length - delayed.length;
+  const allDelayed = sortMarketsBySyncDelay(result.rows);
+  const delayed = selectAutoSyncMarkets(result.rows, config.autoSyncExcludedMarkets);
+  const upToDate = result.rows.length - allDelayed.length;
+  const excluded = allDelayed.length - delayed.length;
 
   if (!delayed.length) {
-    console.log(`Startup sync: all ${result.rows.length} market(s) up to date`);
+    console.log(`Startup sync: no markets queued (${upToDate} up to date, ${excluded} excluded)`);
     return;
   }
 
   console.log(
-    `Startup sync: ${delayed.length} market(s) behind (${upToDate} up to date), fetching by delay`
+    `Startup sync: ${delayed.length} market(s) behind (${upToDate} up to date, ${excluded} excluded), fetching by delay`
   );
   for (const { market, delayDays } of delayed) {
     console.log(`  queue ${market.name} ${market.interval}: ${delayDays} day(s) behind`);
