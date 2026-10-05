@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { authHeaders, defaultChartRange, marketsBase, toMs } from "../api.js";
+import { authHeaders, dateInputFromTimestamp, defaultChartRange, formatDateInput, marketsBase, toMs } from "../api.js";
 import { useAuth } from "../auth/AuthContext.jsx";
 import { handleFormEnterKeyDown } from "../lib/formEnter.js";
 import OhlcChart from "../components/OhlcChart.jsx";
@@ -21,6 +21,7 @@ export default function Dashboard() {
 
   const [downloadStartDate, setDownloadStartDate] = useState("");
   const [downloadEndDate, setDownloadEndDate] = useState("");
+  const downloadStartEditedRef = useRef(false);
   const [canDownload, setCanDownload] = useState(false);
 
   const [loading, setLoading] = useState(true);
@@ -117,6 +118,26 @@ export default function Dashboard() {
   useEffect(() => {
     if (userId) void loadMarkets();
   }, [userId, loadMarkets]);
+
+  useEffect(() => {
+    downloadStartEditedRef.current = false;
+    setDownloadStartDate(dateInputFromTimestamp(selectedMarket?.start_timestamp));
+    setDownloadEndDate(selectedMarket ? formatDateInput(new Date()) : "");
+    if (!selectedMarket) return undefined;
+
+    const controller = new AbortController();
+    fetch(`${base}/${selectedMarket.id}/availability`, { credentials: "include", signal: controller.signal })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        const firstDate = dateInputFromTimestamp(data?.first_available_timestamp);
+        if (firstDate && !controller.signal.aborted && !downloadStartEditedRef.current) {
+          setDownloadStartDate(firstDate);
+        }
+      })
+      .catch(() => {}); // The configured market start remains available if data is not synced yet.
+
+    return () => controller.abort();
+  }, [selectedMarketId, selectedMarket?.start_timestamp]);
 
   useEffect(() => {
     if (!selectedMarket) return undefined;
@@ -254,7 +275,15 @@ export default function Dashboard() {
           </label>
           <label>
             Start Date
-            <input type="date" value={downloadStartDate} onChange={(e) => setDownloadStartDate(e.target.value)} required />
+            <input
+              type="date"
+              value={downloadStartDate}
+              onChange={(e) => {
+                downloadStartEditedRef.current = true;
+                setDownloadStartDate(e.target.value);
+              }}
+              required
+            />
           </label>
           <label>
             End Date

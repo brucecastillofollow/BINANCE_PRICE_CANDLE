@@ -197,6 +197,52 @@ marketsRouter.get("/", async (_req, res, next) => {
   }
 });
 
+/** Earliest candle that the CSV endpoint can actually export for one market. */
+marketsRouter.get("/:id/availability", async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isSafeInteger(id) || id <= 0 || String(id) !== req.params.id) {
+      return res.status(400).json({ message: "Invalid market id" });
+    }
+
+    const marketResult = await pool.query(
+      "SELECT id, name, interval, start_timestamp FROM markets WHERE id = $1",
+      [id]
+    );
+    if (!marketResult.rowCount) {
+      return res.status(404).json({ message: "Market not found" });
+    }
+
+    const market = marketResult.rows[0];
+    if (
+      !/^[A-Z0-9]{5,20}$/.test(market.name) ||
+      !INTERVAL_OPTIONS.includes(market.interval)
+    ) {
+      throw new Error("Invalid stored market identifier");
+    }
+
+    let firstAvailableTimestamp = null;
+    try {
+      const tableName = toHistoricalTableName(market.name, market.interval);
+      const firstResult = await pool.query(
+        `SELECT open_time FROM ${tableName} ORDER BY open_time ASC LIMIT 1`
+      );
+      firstAvailableTimestamp = firstResult.rows[0]?.open_time ?? null;
+    } catch (error) {
+      // A newly created market may not have a historical table until sync begins.
+      if (error.code !== "42P01") throw error;
+    }
+
+    res.json({
+      market_id: market.id,
+      start_timestamp: market.start_timestamp,
+      first_available_timestamp: firstAvailableTimestamp,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 marketsRouter.post("/", requireAdmin, async (req, res, next) => {
   try {
     const { name, interval, start_timestamp: startTimestamp } = req.body;

@@ -21,6 +21,12 @@ export function formatDateInput(date) {
   return date.toISOString().slice(0, 10);
 }
 
+export function dateInputFromTimestamp(timestamp) {
+  if (timestamp === null || timestamp === undefined || timestamp === "") return "";
+  const date = new Date(Number(timestamp));
+  return Number.isNaN(date.getTime()) ? "" : formatDateInput(date);
+}
+
 export function defaultChartRange(days = 30) {
   const end = new Date();
   const start = new Date(end);

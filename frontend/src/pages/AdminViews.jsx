@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { API_BASE, toMs } from "../api.js";
+import { API_BASE, dateInputFromTimestamp, formatDateInput, toMs } from "../api.js";
 import { handleFormEnterKeyDown } from "../lib/formEnter.js";
 import SiteBrand from "../components/SiteBrand.jsx";
 import ThemeToggle from "../components/ThemeToggle.jsx";
@@ -62,6 +62,31 @@ export default function AdminViews() {
   const [downloadMarketId, setDownloadMarketId] = useState("");
   const [downloadStartDate, setDownloadStartDate] = useState("");
   const [downloadEndDate, setDownloadEndDate] = useState("");
+  const downloadStartEditedRef = useRef(false);
+  const selectedDownloadMarket = allMarkets.find((market) => String(market.id) === downloadMarketId);
+
+  useEffect(() => {
+    downloadStartEditedRef.current = false;
+    setDownloadStartDate(dateInputFromTimestamp(selectedDownloadMarket?.start_timestamp));
+    setDownloadEndDate(selectedDownloadMarket ? formatDateInput(new Date()) : "");
+    if (!selectedDownloadMarket) return undefined;
+
+    const controller = new AbortController();
+    fetch(`${API_BASE}/markets/${selectedDownloadMarket.id}/availability`, {
+      credentials: "include",
+      signal: controller.signal,
+    })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        const firstDate = dateInputFromTimestamp(data?.first_available_timestamp);
+        if (firstDate && !controller.signal.aborted && !downloadStartEditedRef.current) {
+          setDownloadStartDate(firstDate);
+        }
+      })
+      .catch(() => {}); // The configured market start remains available if data is not synced yet.
+
+    return () => controller.abort();
+  }, [downloadMarketId, selectedDownloadMarket?.start_timestamp]);
 
   const checkAdmin = useCallback(async () => {
     try {
@@ -497,7 +522,10 @@ export default function AdminViews() {
             <input
               type="date"
               value={downloadStartDate}
-              onChange={(e) => setDownloadStartDate(e.target.value)}
+              onChange={(e) => {
+                downloadStartEditedRef.current = true;
+                setDownloadStartDate(e.target.value);
+              }}
               required
             />
           </label>
