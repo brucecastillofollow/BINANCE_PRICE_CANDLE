@@ -7,6 +7,7 @@ const HUB_AUTH_URL = "https://weienwong.online";
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [linkRequired, setLinkRequired] = useState(null);
+  const [logoutError, setLogoutError] = useState("");
   const [booting, setBooting] = useState(true);
 
   const apiBase = API_BASE || "";
@@ -26,13 +27,6 @@ export function AuthProvider({ children }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const isSessionProbe = path === "/auth/me";
-        if (data.redirect && !isSessionProbe) {
-          window.location.href = data.redirect.includes("return_to=")
-            ? data.redirect
-            : `${data.redirect}${data.redirect.includes("?") ? "&" : "?"}return_to=${encodeURIComponent(window.location.href)}`;
-          throw new Error("Redirecting to hub sign in…");
-        }
         const error = new Error(data.message || data.detail || res.statusText);
         error.code = data.code;
         error.email = data.email;
@@ -61,18 +55,55 @@ export function AuthProvider({ children }) {
     return refreshUser();
   }, [authFetch, refreshUser]);
 
+  const loginLocal = useCallback(async (email, password) => {
+    const data = await authFetch("/auth/local/login", {
+      method: "POST",
+      json: { email, password },
+    });
+    setUser(data.user);
+    setLinkRequired(null);
+    return data.user;
+  }, [authFetch]);
+
+  const registerLocal = useCallback(async (email, password) => {
+    const data = await authFetch("/auth/local/register", {
+      method: "POST",
+      json: { email, password },
+    });
+    setUser(data.user);
+    setLinkRequired(null);
+    return data.user;
+  }, [authFetch]);
+
+  const setLocalPassword = useCallback(async (password, currentPassword) => {
+    await authFetch("/auth/local/password", {
+      method: "POST",
+      json: { password, ...(currentPassword ? { currentPassword } : {}) },
+    });
+    return refreshUser();
+  }, [authFetch, refreshUser]);
+
   const logout = useCallback(async () => {
+    setLogoutError("");
+    // Start optional Hub revocation before the local response clears its cookie.
+    // It must not hold up signing out of Binance when the Hub is unavailable.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1500);
+    fetch(`${HUB_AUTH_URL}/api/identity/logout`, {
+      method: "POST",
+      credentials: "include",
+      signal: controller.signal,
+    }).catch(() => null).finally(() => clearTimeout(timeout));
     try {
-      await fetch(`${HUB_AUTH_URL}/api/identity/logout`, {
-        method: "POST",
-        credentials: "include",
-      });
+      await authFetch("/auth/local/logout", { method: "POST" });
     } catch (_) {
-      /* ignore */
+      setLogoutError("Could not sign out of Binance. Please try again.");
+      return false;
     }
     setUser(null);
     setLinkRequired(null);
-  }, []);
+    return true;
+  }, [authFetch]);
 
   const sendInvite = useCallback(
     async (email) => authFetch("/auth/invites", { method: "POST", json: { email } }),
@@ -93,8 +124,12 @@ export function AuthProvider({ children }) {
       token: "",
       user,
       linkRequired,
+      logoutError,
       setUser,
       logout,
+      loginLocal,
+      registerLocal,
+      setLocalPassword,
       refreshUser,
       linkLegacyAccount,
       sendInvite,
@@ -102,7 +137,7 @@ export function AuthProvider({ children }) {
       booting,
       isAuthenticated: Boolean(user),
     }),
-    [apiBase, user, linkRequired, logout, refreshUser, linkLegacyAccount, sendInvite, authFetch, booting]
+    [apiBase, user, linkRequired, logoutError, logout, loginLocal, registerLocal, setLocalPassword, refreshUser, linkLegacyAccount, sendInvite, authFetch, booting]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -3,6 +3,8 @@ import { config } from "../config.js";
 import { verifyPassword } from "./utils.js";
 
 let defaultProjectCache = null;
+let localAttemptCounter = 0;
+let lastLocalSessionCleanup = 0;
 export const HUB_ONLY_HASH = "$2b$10$hub.identity.only.account.placeholder.hashxx";
 
 export async function initAuthSchema() {
@@ -12,6 +14,7 @@ export async function initAuthSchema() {
       email TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
       hub_user_id UUID,
+      local_session_version INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
@@ -47,6 +50,7 @@ export async function initAuthSchema() {
     CREATE INDEX IF NOT EXISTS invites_token_idx ON invites (token);
   `);
   await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS hub_user_id UUID");
+  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS local_session_version INTEGER NOT NULL DEFAULT 0");
   // Existing hub-created rows use the hub UUID as their local UUID. Bind them
   // before accepting requests so a different hub account cannot claim one by
   // presenting the same, unverified email address.
@@ -55,6 +59,23 @@ export async function initAuthSchema() {
     [HUB_ONLY_HASH]
   );
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS users_hub_user_id_idx ON users (hub_user_id)");
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS local_auth_attempts (
+      key_hash TEXT PRIMARY KEY,
+      attempts INTEGER NOT NULL,
+      window_started_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS local_auth_sessions (
+      session_hash TEXT PRIMARY KEY,
+      user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at TIMESTAMPTZ NOT NULL,
+      revoked_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query("CREATE INDEX IF NOT EXISTS local_auth_sessions_user_idx ON local_auth_sessions (user_id)");
 }
 
 export async function getUserByEmail(email) {
@@ -65,6 +86,64 @@ export async function getUserByEmail(email) {
 export async function getUserById(userId) {
   const { rows } = await pool.query("SELECT id, email, created_at FROM users WHERE id = $1", [userId]);
   return rows[0] ?? null;
+}
+
+export async function getLocalUserById(userId) {
+  const { rows } = await pool.query(
+    "SELECT id, email, password_hash, local_session_version FROM users WHERE id = $1",
+    [userId]
+  );
+  return rows[0] ?? null;
+}
+
+export async function reserveLocalLoginAttempt(keyHash, limit = 5) {
+  // Keep the persistent throttle table bounded during long-running service life.
+  if (++localAttemptCounter % 1000 === 0) {
+    await pool.query("DELETE FROM local_auth_attempts WHERE window_started_at < NOW() - INTERVAL '1 day'");
+  }
+  const { rows } = await pool.query(
+    `INSERT INTO local_auth_attempts (key_hash, attempts) VALUES ($1, 1)
+     ON CONFLICT (key_hash) DO UPDATE SET
+       attempts = CASE WHEN local_auth_attempts.window_started_at < NOW() - INTERVAL '15 minutes'
+         THEN 1 ELSE local_auth_attempts.attempts + 1 END,
+       window_started_at = CASE WHEN local_auth_attempts.window_started_at < NOW() - INTERVAL '15 minutes'
+         THEN NOW() ELSE local_auth_attempts.window_started_at END
+     RETURNING attempts`,
+    [keyHash]
+  );
+  return rows[0].attempts <= limit;
+}
+
+export async function clearLocalLoginAttempts(keyHash) {
+  await pool.query("DELETE FROM local_auth_attempts WHERE key_hash = $1", [keyHash]);
+}
+
+export async function createLocalSession(sessionHash, userId, expiresAtSeconds) {
+  if (Date.now() - lastLocalSessionCleanup > 24 * 60 * 60 * 1000) {
+    await pool.query("DELETE FROM local_auth_sessions WHERE expires_at < NOW()");
+    lastLocalSessionCleanup = Date.now();
+  }
+  await pool.query(
+    `INSERT INTO local_auth_sessions (session_hash, user_id, expires_at)
+     VALUES ($1, $2, to_timestamp($3))`,
+    [sessionHash, userId, expiresAtSeconds]
+  );
+}
+
+export async function localSessionIsActive(sessionHash, userId) {
+  const { rows } = await pool.query(
+    `SELECT 1 FROM local_auth_sessions
+     WHERE session_hash = $1 AND user_id = $2 AND revoked_at IS NULL AND expires_at > NOW()`,
+    [sessionHash, userId]
+  );
+  return rows.length > 0;
+}
+
+export async function revokeLocalSession(sessionHash) {
+  await pool.query(
+    "UPDATE local_auth_sessions SET revoked_at = NOW() WHERE session_hash = $1",
+    [sessionHash]
+  );
 }
 
 export async function getUserByHubId(userId) {
@@ -123,9 +202,9 @@ export async function linkLegacyUser(hubUserId, email, password) {
       return { code: "bad_password" };
     }
     const { rows: linked } = await client.query(
-      `UPDATE users SET hub_user_id = $1, password_hash = $2
-       WHERE id = $3 AND hub_user_id IS NULL RETURNING id, email`,
-      [hubUserId, HUB_ONLY_HASH, user.id]
+      `UPDATE users SET hub_user_id = $1
+       WHERE id = $2 AND hub_user_id IS NULL RETURNING id, email`,
+      [hubUserId, user.id]
     );
     await client.query("COMMIT");
     return { code: "linked", user: linked[0] };
@@ -141,10 +220,43 @@ export async function linkLegacyUser(hubUserId, email, password) {
 export async function createUser(email, passwordHash) {
   const { rows } = await pool.query(
     `INSERT INTO users (id, email, password_hash) VALUES (gen_random_uuid(), $1, $2)
-     RETURNING id, email, created_at`,
+     RETURNING id, email, password_hash, created_at, local_session_version`,
     [email.toLowerCase(), passwordHash]
   );
   return rows[0];
+}
+
+export async function setLocalPassword(userId, currentPassword, newPasswordHash) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      "SELECT id, email, password_hash, local_session_version FROM users WHERE id = $1 FOR UPDATE",
+      [userId]
+    );
+    const user = rows[0];
+    if (!user) {
+      await client.query("ROLLBACK");
+      return { code: "not_found" };
+    }
+    if (user.password_hash !== HUB_ONLY_HASH &&
+        (!currentPassword || !verifyPassword(currentPassword, user.password_hash))) {
+      await client.query("ROLLBACK");
+      return { code: "bad_password" };
+    }
+    const { rows: updated } = await client.query(
+      `UPDATE users SET password_hash = $1, local_session_version = local_session_version + 1
+       WHERE id = $2 RETURNING id, email, local_session_version`,
+      [newPasswordHash, userId]
+    );
+    await client.query("COMMIT");
+    return { code: "updated", user: updated[0] };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function getProjectBySlug(slug) {

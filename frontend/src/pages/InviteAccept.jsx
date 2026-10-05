@@ -4,10 +4,11 @@ import { AuthProvider, useAuth } from "../auth/AuthContext.jsx";
 import SiteBrand from "../components/SiteBrand.jsx";
 import ThemeToggle from "../components/ThemeToggle.jsx";
 import LegacyAccountLink from "../components/LegacyAccountLink.jsx";
+import LocalAuthForm from "../components/LocalAuthForm.jsx";
 
 function InviteAcceptInner() {
   const { token } = useParams();
-  const { setUser, authFetch, user, linkRequired, hubAuthUrl, booting } = useAuth();
+  const { setUser, authFetch, user, linkRequired, booting } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
@@ -34,8 +35,6 @@ function InviteAcceptInner() {
 
   if (booting) return <p className="message">Loading...</p>;
 
-  const returnTo = encodeURIComponent(window.location.href);
-
   return (
     <div className="app">
       <header className="page-header">
@@ -45,20 +44,11 @@ function InviteAcceptInner() {
         <p className="meta">
           Invited as <strong>{email || "…"}</strong>
         </p>
-        {linkRequired ? (
-          <LegacyAccountLink />
-        ) : !user ? (
+        {!user ? (
           <>
-            <p className="meta">Sign in with your hub account that matches this invite email, then accept.</p>
-            <button
-              type="button"
-              className="primary"
-              onClick={() => {
-                window.location.href = `${hubAuthUrl}/login?return_to=${returnTo}`;
-              }}
-            >
-              Sign in at Weien Wong Hub
-            </button>
+            <p className="meta">Sign in with the invited email, then accept.</p>
+            <LocalAuthForm emailHint={email} />
+            {linkRequired ? <div className="auth-alternative"><LegacyAccountLink /></div> : null}
           </>
         ) : (
           <button type="button" className="primary" onClick={handleAccept}>

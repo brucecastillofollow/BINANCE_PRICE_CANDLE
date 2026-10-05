@@ -49,7 +49,7 @@ Per market candle columns (12 fields):
 ## Run Locally
 
 1. Create PostgreSQL database (example `binance_candles`).
-2. Copy `.env.example` to `.env` in the project root and set `DB_*` (or `DATABASE_URL`) to match your PostgreSQL user and password.
+2. Copy `.env.example` to `.env` in the project root. Set `DB_*` (or `DATABASE_URL`) for PostgreSQL, and replace `JWT_SECRET` and `ADMIN_PASSWORD` with strong values.
 3. Install dependencies:
 
 ```bash
@@ -70,6 +70,24 @@ npm run dev:frontend
 
 Ports come from `.env`: `FRONTEND_PORT` (Vite) and `BACKEND_PORT` (Express). Defaults are `5173` and `4000` if unset.
 Parallel market sync workers are controlled by `SYNC_WORKER_COUNT` (default `3`).
+
+## User sign-in
+
+The main page offers a Binance Candle Data email/password account. Registration,
+sign-in, and the Binance session use this project's database and backend; the
+Weien Wong Hub does not need to be running. An account created before Hub sign-in
+was introduced can use its original Binance password.
+
+Hub sign-in remains an optional link. If an existing account has only Hub
+credentials, sign in through the Hub once while it is available, then use
+**Binance account access** to set a Binance password. After that, the Binance
+password works during Hub outages. A Hub-only account without a Binance password
+cannot set one while the Hub is unavailable. This project does not currently
+offer email-based password recovery.
+
+`AUTH_JWT_SECRET` is needed only for optional Hub SSO and must match the Hub's
+signing secret when used. Binance email/password sessions use a separate key
+derived from this project's `JWT_SECRET` and a cookie scoped to this site.
 
 ## Admin panel (`/admin-views`)
 

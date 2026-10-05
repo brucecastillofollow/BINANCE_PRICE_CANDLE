@@ -2,14 +2,26 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { config } from "../config.js";
-import {
-  AUTH_COOKIE_NAME,
-  AUTH_ISSUER,
-  createIdentityToken,
-  decodeIdentityToken,
-} from "/mnt/social_dataset/shared_auth/node/index.js";
 
-export { AUTH_COOKIE_NAME };
+// Keep the optional hub token format here. Binance's local login must boot and
+// continue working even when the separate social_dataset checkout is absent.
+export const AUTH_COOKIE_NAME = "ww_access_token";
+export const AUTH_ISSUER = "weienwong.online";
+const LOCAL_ISSUER = "binance-price-candle";
+const LOCAL_AUDIENCE = "binance-price-candle-user";
+const LOCAL_TOKEN_TYPE = "local_user";
+const localSigningKey = crypto.createHmac("sha256", config.jwtSecret)
+  .update("binance-price-candle/local-user-jwt/v1")
+  .digest("hex");
+
+function decodeIdentityToken(token, secret) {
+  const payload = jwt.verify(token, secret, {
+    algorithms: ["HS256"],
+    issuer: [AUTH_ISSUER, `https://${AUTH_ISSUER}`],
+  });
+  if (!payload.iss) throw new Error("Invalid token issuer");
+  return payload;
+}
 
 export function hashPassword(password) {
   return bcrypt.hashSync(password, 10);
@@ -20,13 +32,76 @@ export function verifyPassword(password, hash) {
 }
 
 export function createToken({ userId, projectId, email }) {
-  return createIdentityToken({
-    userId,
+  return jwt.sign({
+    sub: userId,
     email,
-    secret: config.authJwtSecret,
-    expireDays: config.jwtExpireDays,
-    extraClaims: { project_id: projectId },
+    iss: AUTH_ISSUER,
+    project_id: projectId,
+  }, config.authJwtSecret, { algorithm: "HS256", expiresIn: `${config.jwtExpireDays}d` });
+}
+
+export function createLocalToken(user) {
+  return jwt.sign(
+    { sub: user.id, type: LOCAL_TOKEN_TYPE, sv: user.local_session_version },
+    localSigningKey,
+    {
+      algorithm: "HS256",
+      issuer: LOCAL_ISSUER,
+      audience: LOCAL_AUDIENCE,
+      expiresIn: `${config.jwtExpireDays}d`,
+      jwtid: crypto.randomUUID(),
+    }
+  );
+}
+
+export function decodeLocalToken(token) {
+  const payload = jwt.verify(token, localSigningKey, {
+    algorithms: ["HS256"],
+    issuer: LOCAL_ISSUER,
+    audience: LOCAL_AUDIENCE,
   });
+  if (payload.type !== LOCAL_TOKEN_TYPE ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(payload.sub || "")) ||
+      !Number.isSafeInteger(payload.sv) || payload.sv < 0 ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(payload.jti || ""))) {
+    throw new Error("Invalid local token claims");
+  }
+  return payload;
+}
+
+export function localSessionHash(sessionId) {
+  return crypto.createHmac("sha256", localSigningKey)
+    .update(`session:${sessionId}`)
+    .digest("hex");
+}
+
+export function getLocalToken(req) {
+  const token = req.cookies?.[config.localAuthCookieName];
+  return typeof token === "string" && token ? token : "";
+}
+
+export function localCookieOptions(req) {
+  // Nginx may not forward X-Forwarded-Proto to this backend. The configured
+  // public HTTPS host is enough to know its cookie must be Secure, while local
+  // HTTP Vite development still needs an ordinary host-only cookie.
+  let publicHttpsHost = "";
+  try {
+    const publicUrl = new URL(config.appBaseUrl);
+    if (publicUrl.protocol === "https:") publicHttpsHost = publicUrl.hostname;
+  } catch { /* validateEnv handles the deployment configuration. */ }
+  return {
+    httpOnly: true,
+    secure: Boolean(req.secure || (publicHttpsHost && req.hostname === publicHttpsHost)),
+    sameSite: "lax",
+    path: "/",
+    maxAge: Math.max(1, config.jwtExpireDays) * 24 * 60 * 60 * 1000,
+  };
+}
+
+export function localAttemptKey(ip, email) {
+  return crypto.createHmac("sha256", localSigningKey)
+    .update(`${ip}|${email}`)
+    .digest("hex");
 }
 
 // Verify a hub identity token. Anything else throws.

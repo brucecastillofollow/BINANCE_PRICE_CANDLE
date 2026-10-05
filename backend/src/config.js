@@ -51,6 +51,7 @@ export const config = {
   jwtSecret: process.env.JWT_SECRET ?? "change-me-in-production-binance",
   authJwtSecret: process.env.AUTH_JWT_SECRET ?? process.env.JWT_SECRET ?? "change-me-in-production-binance",
   authCookieName: process.env.AUTH_COOKIE_NAME ?? "ww_access_token",
+  localAuthCookieName: "binance_local_session",
   hubAuthUrl: (process.env.HUB_AUTH_URL ?? "https://weienwong.online").replace(/\/$/, ""),
   jwtExpireDays: Number(process.env.JWT_EXPIRE_DAYS ?? 7),
   appBaseUrl: (process.env.APP_BASE_URL ?? `http://localhost:${Number(process.env.BACKEND_PORT ?? 4000)}`).replace(/\/$/, ""),

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useAuth } from "../auth/AuthContext.jsx";
 
 export default function LegacyAccountLink() {
-  const { linkRequired, linkLegacyAccount, logout } = useAuth();
+  const { linkRequired, linkLegacyAccount, logout, logoutError } = useAuth();
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -46,6 +46,7 @@ export default function LegacyAccountLink() {
       </form>
       {error ? <p className="message error" role="alert">{error}</p> : null}
       <button type="button" onClick={logout}>Use a different hub account</button>
+      {logoutError ? <p className="message error" role="alert">{logoutError}</p> : null}
     </>
   );
 }

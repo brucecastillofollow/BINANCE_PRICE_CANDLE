@@ -39,11 +39,13 @@ function withMemoryUsers(initialUsers, run) {
     if (statement.includes("FROM users WHERE email = $1")) {
       return { rows: users.filter((user) => user.email === values[0]).map((user) => ({ ...user })) };
     }
+    if (statement.includes("FROM users WHERE id = $1")) {
+      return { rows: users.filter((user) => user.id === values[0]).map((user) => ({ ...user })) };
+    }
     if (statement.startsWith("UPDATE users SET hub_user_id = $1")) {
-      const user = users.find((row) => row.id === values[2] && row.hub_user_id === null);
+      const user = users.find((row) => row.id === values[1] && row.hub_user_id === null);
       if (!user) return { rows: [] };
       user.hub_user_id = values[0];
-      user.password_hash = values[1];
       return { rows: [{ id: user.id, email: user.email }] };
     }
     if (statement.startsWith("INSERT INTO users")) {
@@ -68,6 +70,7 @@ test("legacy row requires its old password and keeps its UUID and data after lin
   await withMemoryUsers(
     [{ id: legacyId, email: "legacy@example.test", password_hash: hashPassword("old-password"), hub_user_id: null }],
     async (users) => {
+      const originalHash = users[0].password_hash;
       await assert.rejects(
         ensureUserFromIdentity(hubId, "legacy@example.test"),
         (error) => error.code === "link_required" && error.email === "legacy@example.test"
@@ -79,7 +82,7 @@ test("legacy row requires its old password and keeps its UUID and data after lin
       assert.equal(result.code, "linked");
       assert.equal(result.user.id, legacyId);
       assert.equal(users[0].hub_user_id, hubId);
-      assert.equal(users[0].password_hash, HUB_ONLY_HASH);
+      assert.equal(users[0].password_hash, originalHash);
       assert.equal((await ensureUserFromIdentity(hubId, "legacy@example.test")).id, legacyId);
       await assert.rejects(
         ensureUserFromIdentity(otherHubId, "legacy@example.test"),
@@ -132,7 +135,7 @@ test("link route requires a valid hub session and exposes the legacy link step",
   await withMemoryUsers(
     [{ id: legacyId, email: "legacy@example.test", password_hash: hashPassword("old-password"), hub_user_id: null }],
     async (users) => {
-      const linkHandler = createAuthRouter().stack.find((layer) => layer.route?.path === "/link").route.stack[0].handle;
+      const linkHandler = createAuthRouter().stack.find((layer) => layer.route?.path === "/link").route.stack[1].handle;
       const token = createToken({ userId: hubId, projectId, email: "legacy@example.test" });
       const request = (sessionToken, password) => ({
         headers: {},

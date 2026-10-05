@@ -1,4 +1,6 @@
-export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
+// In Vite development, use its same-origin proxy so session cookies work on
+// any dev-server host even when the production API URL is in the root .env.
+export const API_BASE = import.meta.env.DEV ? "" : import.meta.env.VITE_API_BASE_URL ?? "";
 
 export function authHeaders(token) {
   // Hub SSO uses the HttpOnly ww_access_token cookie. Do not send a fake Bearer.
