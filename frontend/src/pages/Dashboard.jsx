@@ -277,6 +277,7 @@ export default function Dashboard() {
             Start Date
             <input
               type="date"
+              className="download-date-input"
               value={downloadStartDate}
               onChange={(e) => {
                 downloadStartEditedRef.current = true;
@@ -284,10 +285,22 @@ export default function Dashboard() {
               }}
               required
             />
+            {downloadStartDate ? (
+              <time className="download-date-value" dateTime={downloadStartDate}>{downloadStartDate} UTC</time>
+            ) : null}
           </label>
           <label>
             End Date
-            <input type="date" value={downloadEndDate} onChange={(e) => setDownloadEndDate(e.target.value)} required />
+            <input
+              type="date"
+              className="download-date-input"
+              value={downloadEndDate}
+              onChange={(e) => setDownloadEndDate(e.target.value)}
+              required
+            />
+            {downloadEndDate ? (
+              <time className="download-date-value" dateTime={downloadEndDate}>{downloadEndDate} UTC</time>
+            ) : null}
           </label>
           <button type="submit" className="primary" disabled={!markets.length || !canDownload || !inviteUnlocked}>
             Download CSV

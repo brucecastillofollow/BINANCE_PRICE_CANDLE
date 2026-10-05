@@ -521,6 +521,7 @@ export default function AdminViews() {
             Start Date
             <input
               type="date"
+              className="download-date-input"
               value={downloadStartDate}
               onChange={(e) => {
                 downloadStartEditedRef.current = true;
@@ -528,15 +529,22 @@ export default function AdminViews() {
               }}
               required
             />
+            {downloadStartDate ? (
+              <time className="download-date-value" dateTime={downloadStartDate}>{downloadStartDate} UTC</time>
+            ) : null}
           </label>
           <label>
             End Date
             <input
               type="date"
+              className="download-date-input"
               value={downloadEndDate}
               onChange={(e) => setDownloadEndDate(e.target.value)}
               required
             />
+            {downloadEndDate ? (
+              <time className="download-date-value" dateTime={downloadEndDate}>{downloadEndDate} UTC</time>
+            ) : null}
           </label>
           <button type="submit" className="primary" disabled={!allMarkets.length}>
             Download CSV

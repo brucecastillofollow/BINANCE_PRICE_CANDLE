@@ -185,6 +185,16 @@ select:focus {
   box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
+.download-date-input {
+  min-width: 13rem;
+}
+
+.download-date-value {
+  color: var(--text);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 button {
   cursor: pointer;
   font-weight: 600;
