@@ -3,10 +3,11 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { AuthProvider, useAuth } from "../auth/AuthContext.jsx";
 import SiteBrand from "../components/SiteBrand.jsx";
 import ThemeToggle from "../components/ThemeToggle.jsx";
+import LegacyAccountLink from "../components/LegacyAccountLink.jsx";
 
 function InviteAcceptInner() {
   const { token } = useParams();
-  const { setUser, authFetch, user, hubAuthUrl, booting } = useAuth();
+  const { setUser, authFetch, user, linkRequired, hubAuthUrl, booting } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
@@ -44,7 +45,9 @@ function InviteAcceptInner() {
         <p className="meta">
           Invited as <strong>{email || "…"}</strong>
         </p>
-        {!user ? (
+        {linkRequired ? (
+          <LegacyAccountLink />
+        ) : !user ? (
           <>
             <p className="meta">Sign in with your hub account that matches this invite email, then accept.</p>
             <button

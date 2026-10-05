@@ -10,6 +10,7 @@ import {
   ensureUserFromIdentity,
   getDefaultProject,
   getInviteByToken,
+  linkLegacyUser,
   userPayload,
 } from "../auth/store.js";
 import {
@@ -22,8 +23,28 @@ import {
   hubLoginUrl,
 } from "../auth/utils.js";
 
+const LINK_WINDOW_MS = 15 * 60 * 1000;
+const LINK_LIMIT = 5;
+
+function sendLinkRequired(res, error) {
+  return res.status(401).json({
+    code: "link_required",
+    email: error.email,
+    message: "Enter your old Binance Candle Data password once to link this account.",
+  });
+}
+
 export function createAuthRouter() {
   const router = Router();
+  const linkFailures = new Map();
+
+  function recentLinkFailures(key) {
+    const now = Date.now();
+    const recent = (linkFailures.get(key) || []).filter((time) => time > now - LINK_WINDOW_MS);
+    if (recent.length) linkFailures.set(key, recent);
+    else linkFailures.delete(key);
+    return recent;
+  }
 
   router.post("/register", (_req, res) => {
     res.status(401).json({
@@ -37,6 +58,49 @@ export function createAuthRouter() {
       message: "Sign in at the Weien Wong hub",
       redirect: hubLoginUrl(),
     });
+  });
+
+  router.post("/link", async (req, res, next) => {
+    let identity;
+    try {
+      const token = getBearerToken(req);
+      if (!token) return res.status(401).json({ message: "Sign in at the hub first." });
+      identity = decodeToken(token);
+      await rejectRevoked(identity);
+    } catch {
+      return res.status(401).json({ message: "Sign in at the hub first." });
+    }
+
+    const email = String(identity.email || "").trim().toLowerCase();
+    const hubUserId = String(identity.sub || "");
+    if (!email || !hubUserId) return res.status(401).json({ message: "Invalid hub identity." });
+    const password = req.body?.password;
+    if (typeof password !== "string" || !password) {
+      return res.status(400).json({ message: "Old Binance account password required." });
+    }
+
+    // A password check needs a budget even though a hub session is required.
+    // Express applies the configured proxy trust to req.ip; do not read the
+    // caller-controlled X-Forwarded-For header directly.
+    const key = `${req.ip || "unknown"}|${email}`;
+    const failures = recentLinkFailures(key);
+    if (failures.length >= LINK_LIMIT) {
+      return res.status(429).json({ message: "Too many attempts. Try again in fifteen minutes." });
+    }
+    try {
+      const result = await linkLegacyUser(hubUserId, email, password);
+      if (result.code === "bad_password") {
+        linkFailures.set(key, [...failures, Date.now()]);
+        return res.status(401).json({ message: "Old Binance account password is incorrect." });
+      }
+      if (result.code === "not_linkable" || result.code === "conflict") {
+        return res.status(409).json({ message: "This account cannot be linked automatically." });
+      }
+      linkFailures.delete(key);
+      return res.json({ ok: true, email: result.user.email });
+    } catch (error) {
+      return next(error);
+    }
   });
 
   router.post("/admin/login", (req, res) => {
@@ -143,6 +207,7 @@ export function createAuthRouter() {
       const invitesSent = await countAcceptedInvitesSent(user.id, project.id);
       res.json({ user: userPayload(user, invitesSent) });
     } catch (error) {
+      if (error?.code === "link_required") return sendLinkRequired(res, error);
       next(error);
     }
   });
@@ -178,7 +243,11 @@ export function requireAuth(req, res, next) {
         projectId: project.id,
       };
       next();
-    } catch {
+    } catch (error) {
+      if (error?.code === "link_required") return sendLinkRequired(res, error);
+      if (error?.code === "identity_conflict") {
+        return res.status(409).json({ message: "This email is already linked to another hub account." });
+      }
       res.status(401).json({
         message: "Invalid or expired token",
         redirect: hubLoginUrl(config.appBaseUrl),

@@ -5,9 +5,10 @@ import { handleFormEnterKeyDown } from "../lib/formEnter.js";
 import SiteBrand from "../components/SiteBrand.jsx";
 import ThemeToggle from "../components/ThemeToggle.jsx";
 import EcosystemLinks from "../components/EcosystemLinks.jsx";
+import LegacyAccountLink from "../components/LegacyAccountLink.jsx";
 
 function AuthGate() {
-  const { user, refreshUser, logout, sendInvite, hubAuthUrl, booting } = useAuth();
+  const { user, linkRequired, refreshUser, logout, sendInvite, hubAuthUrl, booting } = useAuth();
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteLink, setInviteLink] = useState("");
   const [message, setMessage] = useState("");
@@ -39,30 +40,36 @@ function AuthGate() {
           </div>
         </header>
         <section className="card auth-card">
-          <h2>Sign in to continue</h2>
-          <p className="meta">
-            <strong>Create your account here and it works on every weienwong.online service</strong>
-            {" "}&mdash; sign in once, use them all. Already registered on another one? Just sign in.
-          </p>
-          {/* data-ww-signup / data-ww-signin are picked up by ww-auth.js (loaded in
-              index.html) through a document-level listener, so React rendering
-              these is enough. The dialog posts to weienwong.online itself and the
-              page reloads signed in -- nobody is sent to another site. */}
-          <button
-            type="button"
-            className="primary"
-            style={{ width: "100%", marginTop: 12 }}
-            data-ww-signup
-          >
-            Create a free account
-          </button>
-          <button
-            type="button"
-            style={{ width: "100%", marginTop: 8 }}
-            data-ww-signin
-          >
-            I already have one
-          </button>
+          {linkRequired ? (
+            <LegacyAccountLink />
+          ) : (
+            <>
+              <h2>Sign in to continue</h2>
+              <p className="meta">
+                <strong>Create your account here and it works on every weienwong.online service</strong>
+                {" "}&mdash; sign in once, use them all. Already registered on another one? Just sign in.
+              </p>
+              {/* data-ww-signup / data-ww-signin are picked up by ww-auth.js (loaded in
+                  index.html) through a document-level listener, so React rendering
+                  these is enough. The dialog posts to weienwong.online itself and the
+                  page reloads signed in -- nobody is sent to another site. */}
+              <button
+                type="button"
+                className="primary"
+                style={{ width: "100%", marginTop: 12 }}
+                data-ww-signup
+              >
+                Create a free account
+              </button>
+              <button
+                type="button"
+                style={{ width: "100%", marginTop: 8 }}
+                data-ww-signin
+              >
+                I already have one
+              </button>
+            </>
+          )}
         </section>
         <section className="card auth-about-card">
           <h2>What this platform does</h2>

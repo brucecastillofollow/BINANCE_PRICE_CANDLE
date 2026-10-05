@@ -6,6 +6,7 @@ const HUB_AUTH_URL = "https://weienwong.online";
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [linkRequired, setLinkRequired] = useState(null);
   const [booting, setBooting] = useState(true);
 
   const apiBase = API_BASE || "";
@@ -32,7 +33,10 @@ export function AuthProvider({ children }) {
             : `${data.redirect}${data.redirect.includes("?") ? "&" : "?"}return_to=${encodeURIComponent(window.location.href)}`;
           throw new Error("Redirecting to hub sign in…");
         }
-        throw new Error(data.message || data.detail || res.statusText);
+        const error = new Error(data.message || data.detail || res.statusText);
+        error.code = data.code;
+        error.email = data.email;
+        throw error;
       }
       return data;
     },
@@ -40,10 +44,22 @@ export function AuthProvider({ children }) {
   );
 
   const refreshUser = useCallback(async () => {
-    const data = await authFetch("/auth/me");
-    setUser(data);
-    return data;
+    try {
+      const data = await authFetch("/auth/me");
+      setUser(data);
+      setLinkRequired(null);
+      return data;
+    } catch (error) {
+      setUser(null);
+      setLinkRequired(error.code === "link_required" ? { email: error.email } : null);
+      throw error;
+    }
   }, [authFetch]);
+
+  const linkLegacyAccount = useCallback(async (password) => {
+    await authFetch("/auth/link", { method: "POST", json: { password } });
+    return refreshUser();
+  }, [authFetch, refreshUser]);
 
   const logout = useCallback(async () => {
     try {
@@ -55,6 +71,7 @@ export function AuthProvider({ children }) {
       /* ignore */
     }
     setUser(null);
+    setLinkRequired(null);
   }, []);
 
   const sendInvite = useCallback(
@@ -64,7 +81,7 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     refreshUser()
-      .catch(() => setUser(null))
+      .catch(() => {})
       .finally(() => setBooting(false));
   }, [refreshUser]);
 
@@ -75,15 +92,17 @@ export function AuthProvider({ children }) {
       // Empty token → rely on credentials: "include" + hub cookie.
       token: "",
       user,
+      linkRequired,
       setUser,
       logout,
       refreshUser,
+      linkLegacyAccount,
       sendInvite,
       authFetch,
       booting,
       isAuthenticated: Boolean(user),
     }),
-    [apiBase, user, logout, refreshUser, sendInvite, authFetch, booting]
+    [apiBase, user, linkRequired, logout, refreshUser, linkLegacyAccount, sendInvite, authFetch, booting]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -7,10 +7,9 @@ import {
   AUTH_ISSUER,
   createIdentityToken,
   decodeIdentityToken,
-  getTokenFromRequest,
 } from "/mnt/social_dataset/shared_auth/node/index.js";
 
-export { AUTH_COOKIE_NAME, getTokenFromRequest };
+export { AUTH_COOKIE_NAME };
 
 export function hashPassword(password) {
   return bcrypt.hashSync(password, 10);
@@ -51,7 +50,16 @@ export function generateInviteToken() {
 }
 
 export function getBearerToken(req) {
-  return getTokenFromRequest(req, config.authCookieName);
+  const authorization = String(req.headers?.authorization || "");
+  if (authorization.startsWith("Bearer ")) {
+    const bearer = authorization.slice(7).trim();
+    if (bearer && bearer !== "cookie") return bearer;
+  }
+  // Binance's old local login stored its token in localStorage, not a cookie.
+  // Prefer the hub's named cookie so a stale generic access_token from another
+  // service cannot shadow a valid hub session here.
+  const cookie = req.cookies?.[config.authCookieName];
+  return typeof cookie === "string" && cookie && cookie !== "cookie" ? cookie : "";
 }
 
 export function hubLoginUrl(returnTo = "") {
@@ -111,7 +119,7 @@ export function getAdminTokenFromRequest(req) {
   // env-driven allowlist the rest of the fleet uses. Checked last, so the
   // dedicated admin session and API key keep working exactly as before.
   if (adminEmails().size) {
-    const hubToken = getTokenFromRequest(req, config.authCookieName);
+    const hubToken = getBearerToken(req);
     if (hubToken) {
       try {
         const identity = decodeIdentityToken(hubToken, config.authJwtSecret);

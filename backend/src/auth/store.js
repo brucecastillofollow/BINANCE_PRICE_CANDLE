@@ -1,7 +1,9 @@
 import { pool } from "../db.js";
 import { config } from "../config.js";
+import { verifyPassword } from "./utils.js";
 
 let defaultProjectCache = null;
+export const HUB_ONLY_HASH = "$2b$10$hub.identity.only.account.placeholder.hashxx";
 
 export async function initAuthSchema() {
   await pool.query(`
@@ -9,6 +11,7 @@ export async function initAuthSchema() {
       id UUID PRIMARY KEY,
       email TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
+      hub_user_id UUID,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
@@ -43,6 +46,15 @@ export async function initAuthSchema() {
     CREATE INDEX IF NOT EXISTS invites_project_idx ON invites (project_id);
     CREATE INDEX IF NOT EXISTS invites_token_idx ON invites (token);
   `);
+  await pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS hub_user_id UUID");
+  // Existing hub-created rows use the hub UUID as their local UUID. Bind them
+  // before accepting requests so a different hub account cannot claim one by
+  // presenting the same, unverified email address.
+  await pool.query(
+    "UPDATE users SET hub_user_id = id WHERE password_hash = $1 AND hub_user_id IS NULL",
+    [HUB_ONLY_HASH]
+  );
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS users_hub_user_id_idx ON users (hub_user_id)");
 }
 
 export async function getUserByEmail(email) {
@@ -55,32 +67,75 @@ export async function getUserById(userId) {
   return rows[0] ?? null;
 }
 
+export async function getUserByHubId(userId) {
+  const { rows } = await pool.query("SELECT id, email, created_at FROM users WHERE hub_user_id = $1", [userId]);
+  return rows[0] ?? null;
+}
+
 export async function ensureUserFromIdentity(userId, email) {
-  const hubOnlyHash = "$2b$10$hub.identity.only.account.placeholder.hashxx";
-  let user = await getUserById(userId);
+  const normalizedEmail = String(email || "").trim().toLowerCase();
+  let user = await getUserByHubId(userId);
   if (user) return user;
-  const byEmail = email ? await getUserByEmail(email) : null;
+  const byEmail = normalizedEmail ? await getUserByEmail(normalizedEmail) : null;
   if (byEmail) {
-    // Only adopt a row this service made for a hub identity. A row with a real
-    // hash predates the removal of local registration and belongs to whoever
-    // chose that password -- and the hub does not verify that a registrant owns
-    // the address they sign up with, so the email in a token is not proof the
-    // sender owns this account.
-    if ((byEmail.password_hash || "") !== hubOnlyHash) {
+    // A hub account's email is not proof of ownership of an older local row.
+    if (!byEmail.hub_user_id && byEmail.password_hash !== HUB_ONLY_HASH) {
       const error = new Error(
         "An account with this email already exists here with its own password."
       );
-      error.status = 403;
+      error.status = 401;
+      error.code = "link_required";
+      error.email = byEmail.email;
       throw error;
     }
-    return byEmail;
+    // The row is already bound to a different hub identity. Never adopt it by
+    // email, including when its password is the hub-only sentinel.
+    const error = new Error("This email is already linked to another hub account.");
+    error.status = 409;
+    error.code = "identity_conflict";
+    throw error;
   }
+  if (!normalizedEmail) throw new Error("Hub identity has no email address");
   const { rows } = await pool.query(
-    `INSERT INTO users (id, email, password_hash) VALUES ($1, $2, $3)
+    `INSERT INTO users (id, email, password_hash, hub_user_id) VALUES ($1, $2, $3, $1)
      RETURNING id, email, created_at`,
-    [userId, String(email || "").toLowerCase(), hubOnlyHash]
+    [userId, normalizedEmail, HUB_ONLY_HASH]
   );
   return rows[0];
+}
+
+/** Prove an old local password, then bind that row to the signed-in hub UUID. */
+export async function linkLegacyUser(hubUserId, email, password) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const { rows } = await client.query(
+      "SELECT id, email, password_hash, hub_user_id FROM users WHERE email = $1 FOR UPDATE",
+      [String(email).trim().toLowerCase()]
+    );
+    const user = rows[0];
+    if (!user || user.hub_user_id || user.password_hash === HUB_ONLY_HASH) {
+      await client.query("ROLLBACK");
+      return { code: "not_linkable" };
+    }
+    if (!verifyPassword(password, user.password_hash)) {
+      await client.query("ROLLBACK");
+      return { code: "bad_password" };
+    }
+    const { rows: linked } = await client.query(
+      `UPDATE users SET hub_user_id = $1, password_hash = $2
+       WHERE id = $3 AND hub_user_id IS NULL RETURNING id, email`,
+      [hubUserId, HUB_ONLY_HASH, user.id]
+    );
+    await client.query("COMMIT");
+    return { code: "linked", user: linked[0] };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    if (error.code === "23505") return { code: "conflict" };
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function createUser(email, passwordHash) {
