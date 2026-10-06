@@ -36,7 +36,6 @@ import {
   getBearerToken,
   getLocalToken,
   hashPassword,
-  hubLoginUrl,
   localAttemptKey,
   localCookieOptions,
   localSessionHash,
@@ -199,21 +198,7 @@ export function createAuthRouter() {
     return recent;
   }
 
-  router.post("/register", (_req, res) => {
-    res.status(401).json({
-      message: "Register at the Weien Wong hub",
-      redirect: `${config.hubAuthUrl}/register`,
-    });
-  });
-
-  router.post("/login", (_req, res) => {
-    res.status(401).json({
-      message: "Sign in at the Weien Wong hub",
-      redirect: hubLoginUrl(),
-    });
-  });
-
-  router.post("/account/register", rejectForeignOrigin, async (req, res, next) => {
+  router.post(["/register", "/account/register"], rejectForeignOrigin, async (req, res, next) => {
     try {
       const result = await sharedIdentity.register({
         email: req.body?.email, password: req.body?.password,
@@ -228,7 +213,7 @@ export function createAuthRouter() {
     } catch (error) { next(error); }
   });
 
-  router.post("/account/login", rejectForeignOrigin, async (req, res, next) => {
+  router.post(["/login", "/account/login"], rejectForeignOrigin, async (req, res, next) => {
     const email = emailFromInput(req.body?.email);
     const password = req.body?.password;
     if (!email || typeof password !== "string" || !password || password.length > 1024) {

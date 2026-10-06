@@ -5,6 +5,7 @@ import jwt from "jsonwebtoken";
 import { createApp } from "../src/app.js";
 import { pool } from "../src/db.js";
 import { config } from "../src/config.js";
+import { SharedIdentity } from "../src/auth/sharedIdentity.js";
 import { HUB_ONLY_HASH } from "../src/auth/store.js";
 import { createToken, hashPassword, localCookieOptions } from "../src/auth/utils.js";
 
@@ -71,6 +72,14 @@ async function withServer(initialUsers, run, { hubInitiallyActive = false } = {}
     }
     if (statement.includes("FROM users WHERE id = $1")) {
       return { rows: users.filter((user) => user.id === values[0]).map((user) => ({ ...user })) };
+    }
+    if (statement.startsWith("INSERT INTO users (id, email, password_hash, hub_user_id)")) {
+      const user = {
+        id: values[0], email: values[1], password_hash: values[2],
+        hub_user_id: values[0], local_session_version: 0,
+      };
+      users.push(user);
+      return { rows: [{ ...user }] };
     }
     if (statement.startsWith("INSERT INTO users (id, email, password_hash)")) {
       if (users.some((user) => user.email === values[0])) {
@@ -215,6 +224,71 @@ test("local registration is retired while shared signup is configured", async ()
       headers: { "content-type": "application/json", origin: "https://other.example" },
     })).status, 403);
   });
+});
+
+test("legacy login and register paths use the same local shared-account handlers", async () => {
+  const originalAvailable = SharedIdentity.prototype.available;
+  const originalRegister = SharedIdentity.prototype.register;
+  const originalLogin = SharedIdentity.prototype.login;
+  const calls = [];
+  SharedIdentity.prototype.available = () => true;
+  SharedIdentity.prototype.register = async (input) => {
+    calls.push({ path: "register", input });
+    return { code: "ok", user: { id: hubId, email: "shared@example.test" }, token: "test-shared-token" };
+  };
+  SharedIdentity.prototype.login = async (input) => {
+    calls.push({ path: "login", input });
+    return { code: "ok", user: { id: hubId, email: "shared@example.test" }, token: "test-shared-token" };
+  };
+  try {
+    await withServer([], async ({ request, users, hubCalls }) => {
+      for (const path of ["/auth/register", "/auth/account/register"]) {
+        const response = await request(path, post({
+          email: "shared@example.test", password: "Distinct-Long-Secret-47",
+        }));
+        assert.equal(response.status, 201, path);
+        assert.match(response.headers.get("set-cookie"), /ww_access_token=test-shared-token/);
+        const body = await response.json();
+        assert.equal(body.user.sharedAccount, true);
+        assert.equal(body.user.email, "shared@example.test");
+        assert.equal(body.redirect, undefined, "local signup must not instruct a Hub redirect");
+      }
+      for (const path of ["/auth/login", "/auth/account/login"]) {
+        const response = await request(path, post({
+          email: "shared@example.test", password: "Distinct-Long-Secret-47",
+        }));
+        assert.equal(response.status, 200, path);
+        assert.equal((await response.json()).user.sharedAccount, true);
+      }
+      assert.equal(users.length, 1);
+      assert.equal(users[0].hub_user_id, hubId);
+      assert.deepEqual(calls.map((call) => call.path), ["register", "register", "login", "login"]);
+      assert.equal(hubCalls(), 0, "neither legacy path needs the Hub web service");
+
+      for (const path of ["/auth/register", "/auth/login"]) {
+        const response = await request(path, {
+          ...post({ email: "shared@example.test", password: "Distinct-Long-Secret-47" }),
+          headers: { "content-type": "application/json", origin: "https://other.example" },
+        });
+        assert.equal(response.status, 403, path);
+      }
+      assert.equal(calls.length, 4, "cross-origin requests must not reach the identity store");
+
+      SharedIdentity.prototype.register = async () => ({ code: "throttled", retryAfter: 123 });
+      SharedIdentity.prototype.login = async () => ({ code: "throttled", retryAfter: 123 });
+      for (const path of ["/auth/register", "/auth/login"]) {
+        const response = await request(path, post({
+          email: "shared@example.test", password: "Distinct-Long-Secret-47",
+        }));
+        assert.equal(response.status, 429, path);
+        assert.equal(response.headers.get("retry-after"), "123");
+      }
+    });
+  } finally {
+    SharedIdentity.prototype.available = originalAvailable;
+    SharedIdentity.prototype.register = originalRegister;
+    SharedIdentity.prototype.login = originalLogin;
+  }
 });
 
 test("failed local password guesses are limited per account", async () => {
