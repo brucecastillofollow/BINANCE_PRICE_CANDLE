@@ -195,26 +195,21 @@ test("local password login, me, invite, and password change work while hub is of
   });
 });
 
-test("local registration cannot take over an existing hub-only email", async () => {
+test("local registration is retired while shared signup is configured", async () => {
   await withServer([{
     id: hubId, email: "hub@example.test", password_hash: HUB_ONLY_HASH, hub_user_id: hubId,
   }], async ({ users, request }) => {
     const conflict = await request("/auth/local/register", post({
       email: "hub@example.test", password: "a-long-valid-password",
     }));
-    assert.equal(conflict.status, 409);
+    assert.equal(conflict.status, 410);
     assert.equal(users[0].password_hash, HUB_ONLY_HASH);
 
     const registered = await request("/auth/local/register", post({
       email: "new@example.test", password: "a-long-valid-password",
     }));
-    assert.equal(registered.status, 201);
-    assert.equal((await registered.json()).user.email, "new@example.test");
-    assert.match(cookieOf(registered), /^binance_local_session=/);
-    assert.equal((await request("/auth/me", { headers: { cookie: cookieOf(registered) } })).status, 200);
-    assert.equal((await request("/auth/local/register", post({
-      email: "too-long@example.test", password: "x".repeat(73),
-    }))).status, 400);
+    assert.equal(registered.status, 410);
+    assert.equal(users.length, 1);
     assert.equal((await request("/auth/local/register", {
       ...post({ email: "csrf@example.test", password: "a-long-valid-password" }),
       headers: { "content-type": "application/json", origin: "https://other.example" },
@@ -235,7 +230,7 @@ test("failed local password guesses are limited per account", async () => {
   });
 });
 
-test("hub-only account cannot install local password while hub session is unconfirmed", async () => {
+test("hub-only account cannot install local password with a token lacking a live session", async () => {
   await withServer([{
     id: hubId, email: "hub@example.test", password_hash: HUB_ONLY_HASH, hub_user_id: hubId,
   }], async ({ users, request, hubCalls }) => {
@@ -245,34 +240,24 @@ test("hub-only account cannot install local password while hub session is unconf
     const response = await request("/auth/local/password", post({
       password: "new-binance-password",
     }, `ww_access_token=${hubToken}`));
-    assert.equal(response.status, 503);
-    assert.equal((await response.json()).code, "hub_confirmation_required");
+    assert.equal(response.status, 401);
     assert.equal(users[0].password_hash, HUB_ONLY_HASH);
     assert.equal(hubCalls(), 0);
   });
 });
 
-test("confirmed live hub session can set first Binance password, then use local auth offline", async () => {
+test("a signed JWT with a fabricated session cannot set a Binance-only password", async () => {
   await withServer([{
     id: hubId, email: "hub@example.test", password_hash: HUB_ONLY_HASH, hub_user_id: hubId,
-  }], async ({ users, request, hubCalls, setHubActive }) => {
+  }], async ({ users, request, hubCalls }) => {
     const hubToken = jwt.sign({
       sub: hubId, email: "hub@example.test", iss: "weienwong.online", jti: "active-session-id",
     }, config.authJwtSecret, { expiresIn: "1h" });
     const setup = await request("/auth/local/password", post({
       password: "independent-binance-password",
     }, `ww_access_token=${hubToken}`));
-    assert.equal(setup.status, 200);
-    assert.equal((await setup.json()).hasLocalPassword, true);
-    assert.notEqual(users[0].password_hash, HUB_ONLY_HASH);
-    assert.ok(hubCalls() >= 2);
-    const localCookie = cookieOf(setup);
-    setHubActive(false);
-    const before = hubCalls();
-    assert.equal((await request("/auth/me", { headers: { cookie: localCookie } })).status, 200);
-    assert.equal((await request("/auth/local/login", post({
-      email: "hub@example.test", password: "independent-binance-password",
-    }))).status, 200);
-    assert.equal(hubCalls(), before);
+    assert.equal(setup.status, 401);
+    assert.equal(users[0].password_hash, HUB_ONLY_HASH);
+    assert.equal(hubCalls(), 0, "direct shared-session validation must not call the Hub web service");
   }, { hubInitiallyActive: true });
 });

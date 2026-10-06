@@ -73,21 +73,19 @@ Parallel market sync workers are controlled by `SYNC_WORKER_COUNT` (default `3`)
 
 ## User sign-in
 
-The main page offers a Binance Candle Data email/password account. Registration,
-sign-in, and the Binance session use this project's database and backend; the
-Weien Wong Hub does not need to be running. An account created before Hub sign-in
-was introduced can use its original Binance password.
+The main page offers its own registration and sign-in form. Its backend reads
+the shared identity PostgreSQL database directly, so an account created here
+works on other Weien Wong services without registering again or calling the
+Hub web process. Set `HUB_DATABASE_URL` to a dedicated identity database role;
+`AUTH_JWT_SECRET` must match the shared signing secret. The identity database
+must be available for new registration and sign-in.
 
-Hub sign-in remains an optional link. If an existing account has only Hub
-credentials, sign in through the Hub once while it is available, then use
-**Binance account access** to set a Binance password. After that, the Binance
-password works during Hub outages. A Hub-only account without a Binance password
-cannot set one while the Hub is unavailable. This project does not currently
-offer email-based password recovery.
-
-`AUTH_JWT_SECRET` is needed only for optional Hub SSO and must match the Hub's
-signing secret when used. Binance email/password sessions use a separate key
-derived from this project's `JWT_SECRET` and a cookie scoped to this site.
+Older Binance-only accounts can still use their original password. Their first
+successful sign-in imports the account into the shared identity database when
+the email is available there. If an independent shared account already uses
+that email, sign in with the shared password and prove the old Binance password
+once to link the Binance data. Account settings change the shared password for
+all services. This project does not currently offer email-based password recovery.
 
 ## Admin panel (`/admin-views`)
 

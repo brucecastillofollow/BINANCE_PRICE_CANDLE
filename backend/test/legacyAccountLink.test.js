@@ -131,7 +131,7 @@ function callHandler(handler, request) {
   });
 }
 
-test("link route requires a valid hub session and exposes the legacy link step", async () => {
+test("link route rejects tokens without a live shared session", async () => {
   await withMemoryUsers(
     [{ id: legacyId, email: "legacy@example.test", password_hash: hashPassword("old-password"), hub_user_id: null }],
     async (users) => {
@@ -148,15 +148,10 @@ test("link route requires a valid hub session and exposes the legacy link step",
 
       const probe = await callHandler(requireAuth, request(token));
       assert.equal(probe.status, 401);
-      assert.equal(probe.body.code, "link_required");
-      assert.equal(probe.body.redirect, undefined);
-
       assert.equal((await callHandler(linkHandler, request(token, "wrong"))).status, 401);
       assert.equal(users[0].hub_user_id, null);
-      assert.equal((await callHandler(linkHandler, request(token, "old-password"))).status, 200);
-      const linkedProbe = await callHandler(requireAuth, request(token));
-      assert.equal(linkedProbe.next, true);
-      assert.equal(linkedProbe.auth.userId, legacyId);
+      assert.equal((await callHandler(linkHandler, request(token, "old-password"))).status, 401);
+      assert.equal(users[0].hub_user_id, null);
 
       const revoked = jwt.sign(
         { sub: otherHubId, email: "legacy@example.test", iss: "weienwong.online", jti: "revoked-session" },

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "../auth/AuthContext.jsx";
 
 export default function LocalAuthForm({ emailHint = "" }) {
-  const { hubAuthUrl, loginLocal, registerLocal } = useAuth();
+  const { loginLocal, registerLocal } = useAuth();
   const [mode, setMode] = useState("login");
   const [email, setEmail] = useState(emailHint);
   const [password, setPassword] = useState("");
@@ -41,9 +41,9 @@ export default function LocalAuthForm({ emailHint = "" }) {
 
   return (
     <>
-      <h2>{mode === "login" ? "Sign in to Binance Candle Data" : "Create a Binance account"}</h2>
+      <h2>{mode === "login" ? "Sign in to Binance Candle Data" : "Create your account"}</h2>
       <p className="meta">
-        Use an account for this project. Its sign-in works even when the Weien Wong Hub is unavailable.
+        Create an account here and use it to sign in to other Weien Wong services. Already registered elsewhere? Use the same email and password here.
       </p>
       <form className="local-auth-form" onSubmit={handleSubmit}>
         <label>
@@ -97,20 +97,8 @@ export default function LocalAuthForm({ emailHint = "" }) {
         onClick={() => changeMode(mode === "login" ? "register" : "login")}
         disabled={busy}
       >
-        {mode === "login" ? "New here? Create a Binance account" : "Already have a Binance account? Sign in"}
+        {mode === "login" ? "New here? Create an account" : "Already have an account? Sign in"}
       </button>
-      <div className="auth-alternative">
-        <p className="meta">
-          Only used the Weien Wong Hub before? Sign in with the Hub once, then set a Binance password
-          under Binance account access. Your Hub password will not work in the form above until then.
-        </p>
-        <a
-          className="secondary"
-          href={`${hubAuthUrl}/login?return_to=${encodeURIComponent(window.location.href)}`}
-        >
-          Sign in with Weien Wong Hub
-        </a>
-      </div>
     </>
   );
 }

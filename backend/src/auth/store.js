@@ -90,7 +90,7 @@ export async function getUserById(userId) {
 
 export async function getLocalUserById(userId) {
   const { rows } = await pool.query(
-    "SELECT id, email, password_hash, local_session_version FROM users WHERE id = $1",
+    "SELECT id, email, password_hash, hub_user_id, local_session_version FROM users WHERE id = $1",
     [userId]
   );
   return rows[0] ?? null;

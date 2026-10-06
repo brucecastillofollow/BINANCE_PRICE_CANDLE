@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { rejectRevoked, sessionIsActive } from "../auth/hubSession.js";
+import { SharedIdentity } from "../auth/sharedIdentity.js";
 import { config } from "../config.js";
+import { pool } from "../db.js";
 import {
   acceptInvite,
   addProjectMember,
@@ -44,6 +46,13 @@ import {
 const LINK_WINDOW_MS = 15 * 60 * 1000;
 const LINK_LIMIT = 5;
 const dummyPasswordHash = hashPassword("binance-local-invalid-password");
+const sharedIdentity = new SharedIdentity({
+  databaseUrl: config.hubDatabaseUrl,
+  secret: config.authJwtSecret,
+  cookieName: config.authCookieName,
+  expireDays: config.authJwtExpireDays,
+  appBaseUrl: config.appBaseUrl,
+});
 
 function emailFromInput(value) {
   if (typeof value !== "string") return "";
@@ -70,9 +79,9 @@ function rejectForeignOrigin(req, res, next) {
   next();
 }
 
-async function authPayload(user, projectId) {
+async function authPayload(user, projectId, sharedAccount = false) {
   const invitesSent = await countAcceptedInvitesSent(user.id, projectId);
-  return { ...userPayload(user, invitesSent), hasLocalPassword: user.password_hash !== HUB_ONLY_HASH };
+  return { ...userPayload(user, invitesSent), hasLocalPassword: true, sharedAccount };
 }
 
 async function reservePasswordGuess(req, email) {
@@ -108,6 +117,7 @@ async function authenticatedRequest(req) {
     if (payload) {
       const user = await getLocalUserById(payload.sub);
       if (user && user.password_hash !== HUB_ONLY_HASH &&
+          (!sharedIdentity.available() || !user.hub_user_id) &&
           user.local_session_version === payload.sv &&
           await localSessionIsActive(localSessionHash(payload.jti), user.id)) {
         const project = await ensureDefaultProject();
@@ -119,19 +129,32 @@ async function authenticatedRequest(req) {
   }
 
   const token = getBearerToken(req);
-  if (!token) return null;
-  const payload = decodeToken(token);
-  await rejectRevoked(payload);
-  const project = await ensureDefaultProject();
-  if (payload.project_id && payload.project_id !== project.id) {
-    throw new Error("Invalid token project");
+  if (token) {
+    const payload = decodeToken(token);
+    let verified;
+    if (sharedIdentity.available()) {
+      try { verified = await sharedIdentity.validateSession(payload); }
+      catch (error) { error.status = 503; throw error; }
+      if (!verified) throw new Error("Shared identity session is expired or revoked");
+    } else {
+      await rejectRevoked(payload);
+      verified = { id: payload.sub, email: payload.email };
+    }
+    const project = await ensureDefaultProject();
+    if (payload.project_id && payload.project_id !== project.id) {
+      throw new Error("Invalid token project");
+    }
+    const user = await ensureUserFromIdentity(String(verified.id), String(verified.email || ""));
+    const localUser = await getLocalUserById(user.id);
+    await addProjectMember(project.id, user.id, "member");
+    return { userId: user.id, email: user.email, projectId: project.id,
+      via: sharedIdentity.available() ? "shared" : "hub",
+      sharedUserId: String(verified.id), sharedSessionId: payload.jti || "",
+      hubSessionId: payload.jti || "",
+      hasLocalPassword: Boolean(localUser && localUser.password_hash !== HUB_ONLY_HASH) };
   }
-  const user = await ensureUserFromIdentity(String(payload.sub), String(payload.email || ""));
-  const localUser = await getLocalUserById(user.id);
-  await addProjectMember(project.id, user.id, "member");
-  return { userId: user.id, email: user.email, projectId: project.id,
-    via: "hub", hubSessionId: payload.jti || "",
-    hasLocalPassword: Boolean(localUser && localUser.password_hash !== HUB_ONLY_HASH) };
+
+  return null;
 }
 
 function sendLinkRequired(res, error) {
@@ -145,6 +168,28 @@ function sendLinkRequired(res, error) {
 export function createAuthRouter() {
   const router = Router();
   const linkFailures = new Map();
+
+  function throttleResponse(res, result) {
+    res.set("Retry-After", String(result.retryAfter || 900));
+    return res.status(429).json({ message: "Too many attempts. Try again later." });
+  }
+
+  async function completeSharedSignIn(req, res, result, status = 200) {
+    clearLocalCookie(req, res);
+    sharedIdentity.setCookie(req, res, result.token);
+    const project = await ensureDefaultProject();
+    try {
+      const user = await ensureUserFromIdentity(result.user.id, result.user.email);
+      await addProjectMember(project.id, user.id, "member");
+      return res.status(status).json({ user: await authPayload(user, project.id, true) });
+    } catch (error) {
+      if (error?.code === "link_required") return sendLinkRequired(res, error);
+      if (error?.code === "identity_conflict") {
+        return res.status(409).json({ message: "This email is linked to a different identity here." });
+      }
+      throw error;
+    }
+  }
 
   function recentLinkFailures(key) {
     const now = Date.now();
@@ -168,7 +213,105 @@ export function createAuthRouter() {
     });
   });
 
+  router.post("/account/register", rejectForeignOrigin, async (req, res, next) => {
+    try {
+      const result = await sharedIdentity.register({
+        email: req.body?.email, password: req.body?.password,
+        ip: req.ip || "unknown", userAgent: req.headers["user-agent"] || "",
+      });
+      if (result.code === "unavailable") return res.status(503).json({ message: "Shared account database is not configured." });
+      if (result.code === "invalid_email") return res.status(400).json({ message: "Enter a valid email address." });
+      if (result.code === "invalid_password") return res.status(400).json({ message: result.message });
+      if (result.code === "throttled") return throttleResponse(res, result);
+      if (result.code === "exists") return res.status(409).json({ message: "An account with this email already exists. Sign in instead." });
+      return await completeSharedSignIn(req, res, result, 201);
+    } catch (error) { next(error); }
+  });
+
+  router.post("/account/login", rejectForeignOrigin, async (req, res, next) => {
+    const email = emailFromInput(req.body?.email);
+    const password = req.body?.password;
+    if (!email || typeof password !== "string" || !password || password.length > 1024) {
+      return res.status(400).json({ message: "Email and password required." });
+    }
+    try {
+      if (!sharedIdentity.available()) {
+        return res.status(503).json({ message: "Shared account database is not configured." });
+      }
+      const legacy = await getUserByEmail(email);
+      if (legacy && !legacy.hub_user_id && legacy.password_hash !== HUB_ONLY_HASH) {
+        const guesses = await reservePasswordGuess(req, email);
+        if (guesses.allowed && verifyPassword(password, legacy.password_hash)) {
+          const imported = await sharedIdentity.importLegacy({
+          userId: legacy.id, email, passwordHash: legacy.password_hash,
+          ip: req.ip || "unknown", userAgent: req.headers["user-agent"] || "",
+          });
+          if (imported.code === "ok") {
+            await pool.query("UPDATE users SET hub_user_id = $1 WHERE id = $2 AND hub_user_id IS NULL",
+              [legacy.id, legacy.id]);
+            await clearPasswordGuesses(guesses);
+            return await completeSharedSignIn(req, res, imported);
+          }
+          if (imported.code === "exists") {
+            // A different shared account already owns this email. Keep the old
+            // Binance account reachable until its owner links it explicitly.
+            await issueLocalCookie(req, res, legacy);
+            await clearPasswordGuesses(guesses);
+            return res.json({ user: await authPayload(legacy, (await ensureDefaultProject()).id),
+              legacy: true, message: "This Binance account still needs to be linked to the shared account." });
+          }
+        }
+      }
+      const result = await sharedIdentity.login({
+        email, password, ip: req.ip || "unknown", userAgent: req.headers["user-agent"] || "",
+      });
+      if (result.code === "invalid_input") return res.status(400).json({ message: "Email and password required." });
+      if (result.code === "invalid_credentials") return res.status(401).json({ message: "Invalid email or password." });
+      if (result.code === "disabled") return res.status(403).json({ message: "This account is suspended." });
+      if (result.code === "throttled") return throttleResponse(res, result);
+      return await completeSharedSignIn(req, res, result);
+    } catch (error) { next(error); }
+  });
+
+  router.post("/account/logout", rejectForeignOrigin, async (req, res, next) => {
+    try {
+      const token = getBearerToken(req);
+      if (token) {
+        try { await sharedIdentity.revokeSession(decodeToken(token).jti); } catch { /* Clear cookies anyway. */ }
+      }
+      const localToken = getLocalToken(req);
+      if (localToken) {
+        try { await revokeLocalSession(localSessionHash(decodeLocalToken(localToken).jti)); }
+        catch { /* Clear cookies anyway. */ }
+      }
+      sharedIdentity.clearCookie(req, res);
+      clearLocalCookie(req, res);
+      res.json({ ok: true });
+    } catch (error) { next(error); }
+  });
+
+  router.post("/account/password", rejectForeignOrigin, requireAuth, async (req, res, next) => {
+    if (req.auth.via !== "shared") {
+      return res.status(409).json({ message: "Sign in with your shared account to change its password." });
+    }
+    try {
+      const result = await sharedIdentity.changePassword({
+        userId: req.auth.sharedUserId,
+        currentPassword: req.body?.currentPassword,
+        newPassword: req.body?.password,
+        keepSessionId: req.auth.sharedSessionId,
+      });
+      if (result.code === "invalid_credentials") return res.status(401).json({ message: "Current password is incorrect." });
+      if (result.code === "invalid_password") return res.status(400).json({ message: result.message });
+      if (result.code === "unavailable") return res.status(503).json({ message: "Shared account database is unavailable." });
+      return res.json({ ok: true });
+    } catch (error) { next(error); }
+  });
+
   router.post("/local/register", rejectForeignOrigin, async (req, res, next) => {
+    if (sharedIdentity.available()) {
+      return res.status(410).json({ message: "Create a shared account with the current sign-up form." });
+    }
     const email = emailFromInput(req.body?.email);
     const password = req.body?.password;
     if (!email) return res.status(400).json({ message: "Enter a valid email address." });
@@ -205,9 +348,12 @@ export function createAuthRouter() {
         return res.status(429).json({ message: "Too many attempts. Try again in fifteen minutes." });
       }
       const user = await getUserByEmail(email);
-      const hash = user && user.password_hash !== HUB_ONLY_HASH ? user.password_hash : dummyPasswordHash;
+      const hash = user && (!sharedIdentity.available() || !user.hub_user_id) &&
+        user.password_hash !== HUB_ONLY_HASH ?
+        user.password_hash : dummyPasswordHash;
       const valid = verifyPassword(password, hash);
-      if (!user || user.password_hash === HUB_ONLY_HASH || !valid) {
+      if (!user || (sharedIdentity.available() && user.hub_user_id) ||
+          user.password_hash === HUB_ONLY_HASH || !valid) {
         return res.status(401).json({ message: "Invalid email or password." });
       }
       await clearPasswordGuesses(guesses);
@@ -220,6 +366,11 @@ export function createAuthRouter() {
 
   router.post("/local/logout", rejectForeignOrigin, async (req, res, next) => {
     try {
+      const sharedToken = getBearerToken(req);
+      if (sharedToken && sharedIdentity.available()) {
+        try { await sharedIdentity.revokeSession(decodeToken(sharedToken).jti); }
+        catch { /* Still clear the browser cookie. */ }
+      }
       const token = getLocalToken(req);
       if (token) {
         let payload = null;
@@ -239,6 +390,9 @@ export function createAuthRouter() {
   });
 
   router.post("/local/password", rejectForeignOrigin, requireAuth, async (req, res, next) => {
+    if (sharedIdentity.available() && req.auth.via !== "local") {
+      return res.status(410).json({ message: "Change your shared password in account settings." });
+    }
     const password = req.body?.password;
     const currentPassword = req.body?.currentPassword;
     if (!passwordIsAcceptable(password)) {
@@ -277,11 +431,17 @@ export function createAuthRouter() {
     let identity;
     try {
       const token = getBearerToken(req);
-      if (!token) return res.status(401).json({ message: "Sign in at the hub first." });
+      if (!token) return res.status(401).json({ message: "Sign in with your shared account first." });
       identity = decodeToken(token);
-      await rejectRevoked(identity);
+      if (sharedIdentity.available()) {
+        const verified = await sharedIdentity.validateSession(identity);
+        if (!verified) return res.status(401).json({ message: "Sign in with your shared account first." });
+        identity.email = verified.email;
+      } else {
+        await rejectRevoked(identity);
+      }
     } catch {
-      return res.status(401).json({ message: "Sign in at the hub first." });
+      return res.status(401).json({ message: "Sign in with your shared account first." });
     }
 
     const email = String(identity.email || "").trim().toLowerCase();
@@ -349,7 +509,8 @@ export function createAuthRouter() {
     const invitesSent = await countAcceptedInvitesSent(req.auth.userId, req.auth.projectId);
     res.json({
       ...userPayload({ id: req.auth.userId, email: req.auth.email }, invitesSent),
-      hasLocalPassword: req.auth.hasLocalPassword,
+      hasLocalPassword: req.auth.via === "shared" || req.auth.hasLocalPassword,
+      sharedAccount: req.auth.via === "shared",
     });
   });
 
@@ -441,9 +602,11 @@ export function requireAuth(req, res, next) {
       }
       if (error?.status === 401 ||
           ["JsonWebTokenError", "TokenExpiredError", "NotBeforeError"].includes(error?.name) ||
-          ["Invalid token project", "Hub identity has no email address"].includes(error?.message)) {
+          ["Invalid token project", "Hub identity has no email address",
+           "Shared identity session is expired or revoked"].includes(error?.message)) {
         return res.status(401).json({ message: "Invalid or expired token" });
       }
+      if (error?.status === 503) return res.status(503).json({ message: "Shared account database is unavailable." });
       next(error);
     }
   })();

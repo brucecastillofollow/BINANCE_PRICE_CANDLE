@@ -26,7 +26,9 @@ export default function LocalPasswordSettings() {
       setPassword("");
       setConfirmation("");
       setOpen(false);
-      setMessage("Binance password saved. You can use it to sign in here without the hub.");
+      setMessage(user.sharedAccount
+        ? "Shared password changed. Use it on every Weien Wong service."
+        : "Binance password changed.");
     } catch (failure) {
       setError(failure.message || "Could not save the password. Please try again.");
     } finally {
@@ -36,21 +38,21 @@ export default function LocalPasswordSettings() {
 
   return (
     <section className="card account-access-card">
-      <h2>Binance account access</h2>
+      <h2>Account access</h2>
       <p className="meta">
-        {user.hasLocalPassword
-          ? "Your Binance password lets you sign in here even if the Weien Wong Hub is unavailable."
-          : "Set a Binance password now so you can sign in here even if the Weien Wong Hub is unavailable."}
+        {user.sharedAccount
+          ? "Your password works on every Weien Wong service. Changing it here changes it everywhere."
+          : "This older Binance account has its own password. Sign in with a shared account and link it to use other services."}
       </p>
       {!open ? (
         <button type="button" onClick={() => { setOpen(true); setMessage(""); setError(""); }}>
-          {user.hasLocalPassword ? "Change Binance password" : "Set Binance password"}
+          {user.sharedAccount ? "Change shared password" : "Change Binance password"}
         </button>
       ) : (
         <form className="local-auth-form" onSubmit={handleSubmit}>
           {user.hasLocalPassword ? (
             <label>
-              Current Binance password
+              Current password
               <input
                 type="password"
                 autoComplete="current-password"
@@ -62,7 +64,7 @@ export default function LocalPasswordSettings() {
             </label>
           ) : null}
           <label>
-            New Binance password
+            New password
             <input
               type="password"
               autoComplete="new-password"

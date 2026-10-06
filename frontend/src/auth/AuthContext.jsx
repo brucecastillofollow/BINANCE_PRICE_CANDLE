@@ -56,46 +56,47 @@ export function AuthProvider({ children }) {
   }, [authFetch, refreshUser]);
 
   const loginLocal = useCallback(async (email, password) => {
-    const data = await authFetch("/auth/local/login", {
-      method: "POST",
-      json: { email, password },
-    });
-    setUser(data.user);
-    setLinkRequired(null);
-    return data.user;
+    try {
+      const data = await authFetch("/auth/account/login", {
+        method: "POST",
+        json: { email, password },
+      });
+      setUser(data.user);
+      setLinkRequired(null);
+      return data.user;
+    } catch (error) {
+      if (error.code === "link_required") setLinkRequired({ email: error.email });
+      throw error;
+    }
   }, [authFetch]);
 
   const registerLocal = useCallback(async (email, password) => {
-    const data = await authFetch("/auth/local/register", {
-      method: "POST",
-      json: { email, password },
-    });
-    setUser(data.user);
-    setLinkRequired(null);
-    return data.user;
+    try {
+      const data = await authFetch("/auth/account/register", {
+        method: "POST",
+        json: { email, password },
+      });
+      setUser(data.user);
+      setLinkRequired(null);
+      return data.user;
+    } catch (error) {
+      if (error.code === "link_required") setLinkRequired({ email: error.email });
+      throw error;
+    }
   }, [authFetch]);
 
   const setLocalPassword = useCallback(async (password, currentPassword) => {
-    await authFetch("/auth/local/password", {
+    await authFetch(user?.sharedAccount ? "/auth/account/password" : "/auth/local/password", {
       method: "POST",
       json: { password, ...(currentPassword ? { currentPassword } : {}) },
     });
     return refreshUser();
-  }, [authFetch, refreshUser]);
+  }, [authFetch, refreshUser, user?.sharedAccount]);
 
   const logout = useCallback(async () => {
     setLogoutError("");
-    // Start optional Hub revocation before the local response clears its cookie.
-    // It must not hold up signing out of Binance when the Hub is unavailable.
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 1500);
-    fetch(`${HUB_AUTH_URL}/api/identity/logout`, {
-      method: "POST",
-      credentials: "include",
-      signal: controller.signal,
-    }).catch(() => null).finally(() => clearTimeout(timeout));
     try {
-      await authFetch("/auth/local/logout", { method: "POST" });
+      await authFetch("/auth/account/logout", { method: "POST" });
     } catch (_) {
       setLogoutError("Could not sign out of Binance. Please try again.");
       return false;
